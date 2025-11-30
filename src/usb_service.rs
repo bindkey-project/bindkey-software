@@ -1,5 +1,5 @@
-use serialport::{SerialPortType, available_ports};
 use crate::protocol::Command; // On importe ton enum
+use serialport::{SerialPortType, available_ports};
 use std::io::{self, Write};
 
 pub struct DeviceInfo {
@@ -38,12 +38,18 @@ pub fn send_command(port_name: &str, cmd: Command) -> Result<String, String> {
 
     if port_name.contains("SIMU") {
         println!(" [SIMULATION USB] Envoi vers {}: {}", port_name, json_cmd);
-        
-        match cmd {
-            Command::GetStatus => Ok(r#"{"status": "LOCKED"}"#.to_string()),
-            Command::StartEnrollment { .. } => Ok(r#"{"status": "WAITING_FINGER"}"#.to_string()),
-            _ => Ok("{}".to_string())
-        }
+
+        let reponse_simulee = match cmd {
+            Command::GetStatus => r#"{"status": "LOCKED", "version": "1.0.0"}"#,
+
+            Command::StartEnrollment { .. } => r#"{"status": "WAITING_FINGER", "led": "BLINKING"}"#,
+
+            Command::Unlock { .. } => r#"{"status": "UNLOCKED", "drive": "MOUNTED"}"#,
+
+            _ => "{}",
+        };
+
+        return Ok(reponse_simulee.to_string());
     } else {
         // --- VRAI CODE (Pour plus tard) ---
         // C'est ici qu'on ouvrira le vrai port série avec serialport::new()...

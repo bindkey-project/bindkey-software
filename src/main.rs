@@ -156,13 +156,24 @@ impl eframe::App for BindKeyApp {
 
                         match usb_service::send_command(&device.port_name, cmd) {
                             Ok(json_response) => {
+                                // --- ESPION ---
+                                println!("DEBUG: J'ai reçu de l'USB : '{}'", json_response);
+                                // --------------
+
                                 if let Ok(parsed) =
                                     serde_json::from_str::<serde_json::Value>(&json_response)
                                 {
+                                    // --- ESPION 2 ---
+                                    println!("DEBUG: Le champ status est : {:?}", parsed["status"]);
+                                    // ----------------
+
                                     if parsed["status"] == "UNLOCKED" {
-                                        self.is_unlocked = true; 
+                                        println!("DEBUG: C'est gagné, je passe au vert !");
+                                        self.is_unlocked = true;
                                         self.status_text =
                                             "Succès : Clé déverrouillée !".to_string();
+                                    } else {
+                                        println!("DEBUG: Ce n'est pas égal à 'UNLOCKED'");
                                     }
                                 }
                             }
