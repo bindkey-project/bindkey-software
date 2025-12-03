@@ -17,9 +17,10 @@ enum EnrollmentState {
 struct BindKeyApp {
     status_text: String,
     devices: Vec<usb_service::DeviceInfo>,
-    input_nom: String,
-    input_prenom: String,
-    input_poste: String,    
+    input_firstname: String,
+    input_lastname: String,
+    input_email: String,
+    input_role: String,   
     current_page: Page,
     is_unlocked: bool,
     user_role: UserRole,
@@ -33,13 +34,15 @@ enum Page {
     Enrollment,
     Unlock,
     Volumes,
+    AdminDashboard
 }
 
-#[derive(PartialEq)]
+#[derive(PartialEq, Clone, Copy)]
 enum UserRole {
     None,
     User,
     Enroller,
+    Admin,
 }
 
 impl BindKeyApp {
@@ -47,9 +50,10 @@ impl BindKeyApp {
         Self {
             status_text: "Prêt.".to_owned(),
             devices: Vec::new(),
-            input_nom: String::new(),
-            input_prenom: String::new(),
-            input_poste: String::new(),
+            input_firstname: String::new(),
+            input_lastname: String::new(),
+            input_email: String::new(),
+            input_role: "USER".to_string(),
             current_page: Page::Login,
             is_unlocked: false,
             user_role: UserRole::None,
@@ -80,6 +84,11 @@ impl eframe::App for BindKeyApp {
                         self.user_role = UserRole::Enroller;
                         self.current_page = Page::Home;
                     }
+
+                     if ui.button(" Je suis Admin").clicked() {
+                        self.user_role = UserRole::Admin;
+                        self.current_page = Page::Home;
+                    }
                 });
             });
             return;
@@ -95,7 +104,7 @@ impl eframe::App for BindKeyApp {
 
             ui.add_space(10.0);
 
-            if self.user_role == UserRole::Enroller {
+            if self.user_role == UserRole::Enroller || self.user_role == UserRole::Admin {
                 if ui.button("🚀 Enrôlement").clicked() {
                     self.current_page = Page::Enrollment;
                 }
@@ -105,6 +114,12 @@ impl eframe::App for BindKeyApp {
             }
             if ui.button("💾 Volumes").clicked() {
                 self.current_page = Page::Volumes;
+            }
+
+                if self.user_role == UserRole::Admin {
+                if ui.button("AdminisrationSystème").clicked() {
+                    self.current_page = Page::AdminDashboard;
+                }
             }
 
             ui.add_space(20.0);
@@ -151,36 +166,43 @@ EnrollmentState::Formulaire => {
         .striped(true)
         .show(ui, |ui| {
             
-            ui.label("Nom :");
-            ui.text_edit_singleline(&mut self.input_nom);
-            ui.end_row(); // Fin de la ligne
-
-            ui.label("Prénom :");
-            ui.text_edit_singleline(&mut self.input_prenom);
+ui.label("Prénom (First Name) :");
+            ui.text_edit_singleline(&mut self.input_firstname);
             ui.end_row();
 
-            ui.label("Poste / Fonction :");
-            ui.text_edit_singleline(&mut self.input_poste);
+            ui.label("Nom (Last Name) :");
+            ui.text_edit_singleline(&mut self.input_lastname);
+            ui.end_row();
+
+            ui.label("Email :");
+            ui.text_edit_singleline(&mut self.input_email);
+            ui.end_row();
+
+            ui.label("Rôle :");
+            // Menu déroulant pour coller à l'ENUM SQL
+            egui::ComboBox::from_id_source("role_combo")
+                .selected_text(&self.input_role)
+                .show_ui(ui, |ui| {
+                    ui.selectable_value(&mut self.input_role, "USER".to_string(), "Utilisateur (USER)");
+                    ui.selectable_value(&mut self.input_role, "ENROLLER".to_string(), "Enrôleur (ENROLLER)");
+                    ui.selectable_value(&mut self.input_role, "ADMIN".to_string(), "Administrateur (ADMIN)");
+                });
             ui.end_row();
         });
 
     ui.add_space(20.0);
 
-    // Validation : On vérifie que les 3 champs sont remplis
-    let form_is_valid = !self.input_nom.is_empty() 
-                     && !self.input_prenom.is_empty() 
-                     && !self.input_poste.is_empty();
+    // Validation : On vérifie que les champs obligatoires du SQL sont remplis
+    // (Email est marqué UNIQUE dans ton SQL, donc il est important)
+    let form_is_valid = !self.input_firstname.is_empty() 
+                     && !self.input_lastname.is_empty() 
+                     && !self.input_email.is_empty();
 
     ui.add_enabled_ui(form_is_valid, |ui| {
         if ui.button("Suivant ➡").clicked() {
-            // On passe à l'étape suivante (le doigt)
             self.enroll_state = EnrollmentState::AttenteDoigt;
         }
     });
-
-    if !form_is_valid {
-        ui.small(egui::RichText::new("* Tous les champs sont obligatoires").color(egui::Color32::RED));
-    }
 },
 
         EnrollmentState::AttenteDoigt => {
@@ -196,15 +218,14 @@ EnrollmentState::Formulaire => {
     
     let fake_hash = "hash_biometrique_secure_123".to_string();
     
-    // --- CONCATÉNATION DES INFOS ---
-    let identity_complete = format!("{} {} ({})", 
-        self.input_nom.to_uppercase(), 
-        self.input_prenom, 
-        self.input_poste
-    );
-    
-    // On envoie l'identité complète
-    match api_service::register_user(identity_complete, fake_hash) {
+    // On appelle la nouvelle version de register_user avec tous les champs séparés
+    match api_service::register_user(
+        self.input_firstname.clone(),
+        self.input_lastname.clone(),
+        self.input_email.clone(),
+        self.input_role.clone(),
+        fake_hash
+    ) {
         Ok(msg) => self.enroll_state = EnrollmentState::Succes(msg),
         Err(e) => self.enroll_state = EnrollmentState::Erreur(e),
     }
@@ -219,9 +240,10 @@ EnrollmentState::Formulaire => {
     // ...
     if ui.button("Enrôler un autre utilisateur").clicked() {
         // RESET DES CHAMPS
-        self.input_nom.clear();
-        self.input_prenom.clear();
-        self.input_poste.clear();
+        self.input_firstname.clear();
+        self.input_lastname.clear();
+        self.input_email.clear();
+        self.input_role.clear();
         
         self.enroll_state = EnrollmentState::Formulaire;
     }
@@ -312,6 +334,11 @@ EnrollmentState::Formulaire => {
             Page::Volumes => {
                 ui.heading("Gestion des volumes securisés");
                 ui.label("Fonctionnalité pas encore disponible");
+            }
+
+            Page::AdminDashboard => {
+                ui.heading("Panneau d'administration");
+                ui.label("Fonctionnalité reservé aux Admin");
             }
             _ => {}
         });
