@@ -1,13 +1,14 @@
 use eframe::egui;
 use serde::{Deserialize, Serialize};
 use serialport::{SerialPort, SerialPortInfo, SerialPortType};
+use std::fmt::format;
 use std::sync::mpsc::{Receiver, Sender, channel};
 
 use crate::protocol::Command::StartEnrollment;
 use crate::usb_service::send_command_bindkey;
 mod protocol;
 mod usb_service;
-use crate::protocol::RegisterPayload;
+use crate::protocol::{ChallengeResponse, LoginPayload, RegisterPayload};
 
 // device port_name : "/dev/ttyACM0", device port_type :
 //UsbPort(UsbPortInfo { vid: 0x1a86, pid: 0x55d3, serial_number: Some("5A47013078"), manufacturer: Some("1a86"), product: Some("USB Single Serial") })
@@ -24,7 +25,7 @@ struct BindKeyApp {
     receiver: Receiver<ApiMessage>,
     sender: Sender<ApiMessage>,
     status_message: String,
-    login_user: String,
+    login_email: String,
     login_password: String,
     is_authenticated: bool,
 }
@@ -48,6 +49,8 @@ enum Role {
 enum ApiMessage {
     Success(String),
     Error(String),
+    ReceivedChallenge(String),
+    SignedChallenge(String),
 }
 
 impl BindKeyApp {
@@ -64,72 +67,127 @@ impl BindKeyApp {
             receiver: rx,
             sender: tx,
             status_message: String::new(),
-            login_user: String::new(),
+            login_email: String::new(),
             login_password: String::new(),
             is_authenticated: false,
         }
     }
     fn show_login_page(&mut self, ui: &mut egui::Ui) {
-        
         ui.vertical_centered(|ui| {
-            ui.add_space(50.0); 
+            ui.add_space(50.0);
             ui.heading("BindKey Secure Access");
             ui.add_space(30.0);
 
-            ui.label("Identifiant :");
-            ui.add(egui::TextEdit::singleline(&mut self.login_user).hint_text("admin"));
+            ui.label("Email :");
+            ui.add(
+                egui::TextEdit::singleline(&mut self.login_email)
+                    .hint_text("jean.mattei@entreprise.fr"),
+            );
             ui.add_space(10.0);
 
             ui.label("Mot de passe :");
             ui.add(egui::TextEdit::singleline(&mut self.login_password).password(true));
-            
+
             ui.add_space(30.0);
 
-            if ui.button("🔐 Se connecter avec BindKey").clicked() {
-                // 1. Vérification simple (Simulation Backend)
-                if !self.login_user.is_empty() && !self.login_password.is_empty() {
-                    
-                    println!("Tentative de connexion pour : {}", self.login_user);
+            if ui.button(" Se connecter avec BindKey").clicked() {
+                if !self.login_email.is_empty() && !self.login_password.is_empty() {
+                    let clone_sender = self.sender.clone();
+                    let clone_login_email = self.login_email.clone();
+                    let clone_login_password = self.login_password.clone();
+                    tokio::spawn(async move {
+                        let payload = LoginPayload {
+                            email: clone_login_email,
+                            password: clone_login_password,
+                        };
+                        let client = reqwest::Client::new();
+                        let resultat = client
+                            .post("http://localhost:3000/login")
+                            .json(&payload)
+                            .send()
+                            .await;
+                        match resultat {
+                            Ok(response) => {
+                                if response.status().is_success() {
+                                    let challenge = response.json::<ChallengeResponse>().await;
+                                    match challenge {
+                                        Ok(chall) => {
+                                            let le_challenge = chall.challenge;
+                                            let _ = clone_sender
+                                                .send(ApiMessage::ReceivedChallenge(le_challenge));
+                                        }
+                                        Err(_) => {
+                                            let _ = clone_sender.send(ApiMessage::Error(
+                                                "Erreur de communication avec le serveur"
+                                                    .to_string(),
+                                            ));
+                                        }
+                                    }
+                                } else {
+                                    let _ = clone_sender.send(ApiMessage::Error(
+                                        "Identifiants invalides".to_string(),
+                                    ));
+                                }
+                            }
+                            Err(e) => {
+                                let _ = clone_sender.send(ApiMessage::Error(e.to_string()));
+                            }
+                        }
+                    });
 
                     self.is_authenticated = true;
-                    self.role_user = Role::ADMIN; 
+                    self.role_user = Role::ADMIN;
                     self.current_page = Page::Home;
-                    self.status_message.clear();
                 } else {
-                    self.status_message = "Veuillez remplir les champs".to_string();
+                    ui.add_space(20.0);
+                    ui.colored_label(
+                        egui::Color32::RED,
+                        "Veuillez remplir les champs".to_string(),
+                    );
                 }
-            }
-            
-            if !self.status_message.is_empty() {
-                ui.add_space(20.0);
-                ui.colored_label(egui::Color32::RED, &self.status_message);
             }
         });
     }
-    
 }
-
-
 
 impl eframe::App for BindKeyApp {
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
-       
-         if let Ok(message) = self.receiver.try_recv() {
-                match message {
-                    ApiMessage::Success(texte) => {
-                        self.status_message = format!("{}", texte);
+        if let Ok(message) = self.receiver.try_recv() {
+            match message {
+                ApiMessage::Success(texte) => {
+                    self.status_message = format!("{}", texte);
+                }
+                ApiMessage::Error(texte) => {
+                    self.status_message = format!("{}", texte);
+                }
+                ApiMessage::ReceivedChallenge(le_challenge) => {
+                    self.status_message =
+                        format!("Challenge reçue, communication avec la bindkey en cours");
+                    self.devices.clear();
+                    if let Ok(liste_devices) = serialport::available_ports() {
+                        for device in liste_devices {
+                            match device.port_type {
+                                SerialPortType::UsbPort(_) => {
+                                    self.devices.push(device);
+                                }
+                                _ => {}
+                            };
+                        }
                     }
-                    ApiMessage::Error(texte) => {
-                        self.status_message = format!("{}", texte);
+                    if let Some(device) = self.devices.first() {
+                        tokio::spawn(async move {
+                            send_command_bindkey(&device.port_name, protocol::Command::SignChallenge(le_challenge))
+                        });
                     }
                 }
+                ApiMessage::SignedChallenge() => {}
             }
-       
+        }
+
         if !self.is_authenticated {
-           egui::CentralPanel::default().show(ctx, |ui| {
-            self.show_login_page(ui);
-           });
-            
+            egui::CentralPanel::default().show(ctx, |ui| {
+                self.show_login_page(ui);
+            });
         } else {
             if self.current_page != Page::Login {
                 egui::SidePanel::left("menu").show(ctx, |ui| {
@@ -151,16 +209,13 @@ impl eframe::App for BindKeyApp {
                         self.is_authenticated = false;
                         self.role_user = Role::NONE;
                         self.login_password.clear();
-                        self.current_page = Page::Login;
-                        
-                        
                     };
                 });
             }
 
             egui::CentralPanel::default().show(ctx, |ui| match self.current_page {
                 Page::Login => {
-                        self.current_page = Page::Home;
+                    self.current_page = Page::Home;
                 }
                 Page::Enrollment => {
                     ui.label("Firstname :");
@@ -260,7 +315,6 @@ impl eframe::App for BindKeyApp {
                     }
                 }
                 Page::Home => {
-                    ui.heading(format!("Bienvenue, {}", self.login_user));
                     ui.label(format!("Votre rôle : {:?}", self.role_user));
 
                     ui.add_space(20.0);
@@ -279,8 +333,8 @@ impl eframe::App for BindKeyApp {
                         }
                     }
                     for device in &self.devices {
-                            ui.label(format!("Detecté : {}", device.port_name));
-                        }
+                        ui.label(format!("Detecté : {}", device.port_name));
+                    }
                 }
                 Page::Unlock => {
                     ui.heading("Gestion des Volumes");
