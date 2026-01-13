@@ -26,6 +26,22 @@ pub struct LoginPayload {
 
 #[derive(Serialize, Deserialize, Debug)]
 
+pub struct VerifyPayload {
+    pub email: String,
+    pub signature: String,
+}
+
+
+#[derive(Serialize, Deserialize, Debug)]
+
+pub struct LoginSuccessResponse {
+    pub token: String,
+    pub role: Role,
+}
+
+
+#[derive(Serialize, Deserialize, Debug)]
+
 pub struct ChallengeResponse {
     pub challenge: String,
 }

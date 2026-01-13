@@ -1,4 +1,5 @@
 use eframe::egui;
+use egui::Response;
 use serde::{Deserialize, Serialize};
 use serialport::{SerialPort, SerialPortInfo, SerialPortType};
 use std::fmt::format;
@@ -8,7 +9,9 @@ use crate::protocol::Command::StartEnrollment;
 use crate::usb_service::send_command_bindkey;
 mod protocol;
 mod usb_service;
-use crate::protocol::{ChallengeResponse, LoginPayload, RegisterPayload};
+use crate::protocol::{
+    ChallengeResponse, LoginPayload, LoginSuccessResponse, RegisterPayload, VerifyPayload,
+};
 
 // device port_name : "/dev/ttyACM0", device port_type :
 //UsbPort(UsbPortInfo { vid: 0x1a86, pid: 0x55d3, serial_number: Some("5A47013078"), manufacturer: Some("1a86"), product: Some("USB Single Serial") })
@@ -24,10 +27,13 @@ struct BindKeyApp {
     devices: Vec<SerialPortInfo>,
     receiver: Receiver<ApiMessage>,
     sender: Sender<ApiMessage>,
+    login_status: String,
+    enroll_status: String,
     status_message: String,
     login_email: String,
     login_password: String,
     is_authenticated: bool,
+    auth_token: String,
 }
 
 #[derive(PartialEq)]
@@ -47,10 +53,12 @@ enum Role {
 }
 
 enum ApiMessage {
-    Success(String),
-    Error(String),
+    EnrollmentSuccess(String),
+    LoginError(String),
+    EnrollmentError(String),
     ReceivedChallenge(String),
     SignedChallenge(String),
+    LoginSuccess(Role, String),
 }
 
 impl BindKeyApp {
@@ -67,9 +75,12 @@ impl BindKeyApp {
             receiver: rx,
             sender: tx,
             status_message: String::new(),
+            login_status: String::new(),
+            enroll_status: String::new(),
             login_email: String::new(),
             login_password: String::new(),
             is_authenticated: false,
+            auth_token: String::new(),
         }
     }
     fn show_login_page(&mut self, ui: &mut egui::Ui) {
@@ -91,10 +102,16 @@ impl BindKeyApp {
             ui.add_space(30.0);
 
             if ui.button(" Se connecter avec BindKey").clicked() {
-                if !self.login_email.is_empty() && !self.login_password.is_empty() {
+                if self.login_email.is_empty() && self.login_password.is_empty() {
+                    self.login_status = "Veuillez remplir tous les champs".to_string();
+                }
+                else {
+                    self.login_status = "Connexion en cours...".to_string();
+
                     let clone_sender = self.sender.clone();
                     let clone_login_email = self.login_email.clone();
                     let clone_login_password = self.login_password.clone();
+                    
                     tokio::spawn(async move {
                         let payload = LoginPayload {
                             email: clone_login_email,
@@ -117,36 +134,31 @@ impl BindKeyApp {
                                                 .send(ApiMessage::ReceivedChallenge(le_challenge));
                                         }
                                         Err(_) => {
-                                            let _ = clone_sender.send(ApiMessage::Error(
+                                            let _ = clone_sender.send(ApiMessage::LoginError(
                                                 "Erreur de communication avec le serveur"
                                                     .to_string(),
                                             ));
                                         }
                                     }
                                 } else {
-                                    let _ = clone_sender.send(ApiMessage::Error(
+                                    let _ = clone_sender.send(ApiMessage::LoginError(
                                         "Identifiants invalides".to_string(),
                                     ));
                                 }
                             }
                             Err(e) => {
-                                let _ = clone_sender.send(ApiMessage::Error(e.to_string()));
+                                let _ = clone_sender.send(ApiMessage::LoginError(e.to_string()));
                             }
                         }
                     });
-
-                    self.is_authenticated = true;
-                    self.role_user = Role::ADMIN;
-                    self.current_page = Page::Home;
-                } else {
-                    ui.add_space(20.0);
-                    ui.colored_label(
-                        egui::Color32::RED,
-                        "Veuillez remplir les champs".to_string(),
-                    );
                 }
             }
         });
+        if self.login_status.contains("cours") {
+            ui.colored_label(egui::Color32::BLUE, &self.login_status);
+        } else {
+            ui.colored_label(egui::Color32::RED, &self.login_status);
+        }
     }
 }
 
@@ -154,33 +166,103 @@ impl eframe::App for BindKeyApp {
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         if let Ok(message) = self.receiver.try_recv() {
             match message {
-                ApiMessage::Success(texte) => {
-                    self.status_message = format!("{}", texte);
+                ApiMessage::EnrollmentSuccess(texte) => {
+                    self.enroll_status = texte.to_string();
                 }
-                ApiMessage::Error(texte) => {
-                    self.status_message = format!("{}", texte);
+                ApiMessage::LoginError(texte) => {
+                    self.login_status = texte.to_string();
                 }
+                ApiMessage::EnrollmentError(texte) => self.enroll_status = texte.to_string(),
                 ApiMessage::ReceivedChallenge(le_challenge) => {
-                    self.status_message =
-                        format!("Challenge reçue, communication avec la bindkey en cours");
+                    self.login_status =
+                        "Challenge reçue, communication avec la bindkey en cours".to_string();
                     self.devices.clear();
                     if let Ok(liste_devices) = serialport::available_ports() {
                         for device in liste_devices {
-                            match device.port_type {
-                                SerialPortType::UsbPort(_) => {
-                                    self.devices.push(device);
-                                }
-                                _ => {}
+                            if let SerialPortType::UsbPort(_) = device.port_type {
+                                self.devices.push(device);
                             };
                         }
                     }
                     if let Some(device) = self.devices.first() {
+                        let clone_sender = self.sender.clone();
+                        let port_name = device.port_name.clone();
                         tokio::spawn(async move {
-                            send_command_bindkey(&device.port_name, protocol::Command::SignChallenge(le_challenge))
+                            match send_command_bindkey(
+                                &port_name,
+                                protocol::Command::SignChallenge(le_challenge),
+                            ) {
+                                Ok(response) => {
+                                    let _ =
+                                        clone_sender.send(ApiMessage::SignedChallenge(response));
+                                }
+                                Err(message_erreur) => {
+                                    let _ =
+                                        clone_sender.send(ApiMessage::LoginError(message_erreur));
+                                }
+                            }
                         });
+                    } else {
+                        self.status_message =
+                            "Aucune BindKey détectée. Branchez la clé.".to_string();
                     }
                 }
-                ApiMessage::SignedChallenge() => {}
+                ApiMessage::SignedChallenge(signature) => {
+                    self.login_status =
+                        "Signature générée. Vérification finale auprès du serveur".to_string();
+                    let clone_email = self.login_email.clone();
+                    let clone_signature = signature.clone();
+                    let clone_sender = self.sender.clone();
+
+                    tokio::spawn(async move {
+                        let payload = VerifyPayload {
+                            email: clone_email,
+                            signature: clone_signature,
+                        };
+                        let client = reqwest::Client::new();
+                        let resultat = client
+                            .post("http://localhost:3000/login/verify")
+                            .json(&payload)
+                            .send()
+                            .await;
+                        match resultat {
+                            Ok(response) => {
+                                if response.status().is_success() {
+                                    match response.json::<LoginSuccessResponse>().await {
+                                        Ok(response) => {
+                                            let _ = clone_sender.send(ApiMessage::LoginSuccess(
+                                                response.role,
+                                                response.token,
+                                            ));
+                                        }
+                                        Err(e) => {
+                                            let _ = clone_sender
+                                                .send(ApiMessage::LoginError(e.to_string()));
+                                        }
+                                    }
+                                } else {
+                                    let _ = clone_sender.send(ApiMessage::LoginError(
+                                        "Signature refusée par le serveur".to_string(),
+                                    ));
+                                }
+                            }
+                            Err(error) => {
+                                let _ =
+                                    clone_sender.send(ApiMessage::LoginError(error.to_string()));
+                            }
+                        }
+                    });
+                }
+                ApiMessage::LoginSuccess(role, token) => {
+                    self.is_authenticated = true;
+                    self.role_user = role;
+                    self.auth_token = token;
+
+                    self.login_status = String::new();
+                    self.login_password = String::new();
+
+                    self.current_page = Page::Home;
+                }
             }
         }
 
@@ -194,10 +276,10 @@ impl eframe::App for BindKeyApp {
                     if ui.button("Accueil").clicked() {
                         self.current_page = Page::Home;
                     };
-                    if self.role_user == Role::ENROLLEUR || self.role_user == Role::ADMIN {
-                        if ui.button("Enrôlment").clicked() {
-                            self.current_page = Page::Enrollment;
-                        };
+                    if (self.role_user == Role::ENROLLEUR || self.role_user == Role::ADMIN)
+                        && ui.button("Enrôlment").clicked()
+                    {
+                        self.current_page = Page::Enrollment;
                     };
                     if ui.button("Unlock").clicked() {
                         self.current_page = Page::Unlock;
@@ -278,13 +360,13 @@ impl eframe::App for BindKeyApp {
                                                         Ok(response) => {
                                                             if response.status().is_success() {
                                                                 let _ = clone_sender.send(
-                                                                    ApiMessage::Success(
+                                                                    ApiMessage::EnrollmentSuccess(
                                                                         "Enrolé !".to_string(),
                                                                     ),
                                                                 );
                                                             } else {
                                                                 let _ = clone_sender.send(
-                                                                    ApiMessage::Error(
+                                                                    ApiMessage::EnrollmentError(
                                                                         "Le serveur a dit non"
                                                                             .to_string(),
                                                                     ),
@@ -293,7 +375,9 @@ impl eframe::App for BindKeyApp {
                                                         }
                                                         Err(e) => {
                                                             let _ = clone_sender.send(
-                                                                ApiMessage::Error(e.to_string()),
+                                                                ApiMessage::EnrollmentError(
+                                                                    e.to_string(),
+                                                                ),
                                                             );
                                                         }
                                                     }
@@ -309,9 +393,9 @@ impl eframe::App for BindKeyApp {
                         };
                     });
 
-                    if !self.status_message.is_empty() {
+                    if !self.enroll_status.is_empty() {
                         ui.add_space(10.0);
-                        ui.label(&self.status_message);
+                        ui.label(&self.enroll_status);
                     }
                 }
                 Page::Home => {
@@ -323,11 +407,8 @@ impl eframe::App for BindKeyApp {
                         self.devices.clear();
                         if let Ok(liste_devices) = serialport::available_ports() {
                             for device in liste_devices {
-                                match device.port_type {
-                                    SerialPortType::UsbPort(_) => {
-                                        self.devices.push(device);
-                                    }
-                                    _ => {}
+                                if let SerialPortType::UsbPort(_) = device.port_type {
+                                    self.devices.push(device);
                                 };
                             }
                         }
