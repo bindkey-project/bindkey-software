@@ -1,7 +1,6 @@
 use std::str;
 
 use serde::{Deserialize, Serialize};
-use crate::Role;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub enum Command {
@@ -14,6 +13,7 @@ pub struct RegisterPayload {
     pub first_name: String,
     pub last_name: String,
     pub email: String,
+    pub password: String,
     pub user_role: Role,
 }
 
@@ -44,4 +44,29 @@ pub struct LoginSuccessResponse {
 
 pub struct ChallengeResponse {
     pub challenge: String,
+}
+
+#[derive(PartialEq)]
+pub enum Page {
+    Login,
+    Home,
+    Enrollment,
+    Unlock, // Page pour les volumes (à faire plus tard)
+}
+
+#[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
+pub enum Role {
+    USER,
+    ENROLLEUR,
+    ADMIN,
+    NONE,
+}
+
+pub enum ApiMessage {
+    EnrollmentSuccess(String),
+    LoginError(String),
+    EnrollmentError(String),
+    ReceivedChallenge(String),
+    SignedChallenge(String),
+    LoginSuccess(Role, String),
 }
