@@ -145,7 +145,7 @@ fn send_create_order(app: &mut BindKeyApp, ctx: egui::Context) {
         });
     }
     else {
-        app.creation_state.status = "❌ Erreur : BindKey non connectée !".to_string();
+        app.creation_state.status = " Erreur : BindKey non connectée !".to_string();
     }
 }
 

@@ -25,6 +25,7 @@ pub fn show_login_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
                 app.login_status = "Connexion en cours...".to_string();
                 app.role_user = crate::protocol::Role::ADMIN;
                 app.current_page = crate::protocol::Page::Home;
+                
                 let clone_sender = app.sender.clone();
                 let clone_login_email = app.login_email.clone();
                 let clone_login_password = hash_password_with_salt(&app.login_password);
