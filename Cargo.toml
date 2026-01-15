@@ -24,6 +24,7 @@ anyhow = "1.0" # Pour une gestion d'erreur facile
 log = "0.4"
 env_logger = "0.11"
 json = "0.12.4"
+sysinfo = "0.37.2"
 
 #Hash
 sha2 = "0.10"

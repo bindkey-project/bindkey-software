@@ -1,13 +1,12 @@
-use crate::usb_service::send_command_bindkey;
+use crate::{protocol::CreationState, usb_service::send_command_bindkey};
 use eframe::egui;
-use serde::{Deserialize, Serialize};
 use serialport::{SerialPortInfo, SerialPortType};
 use std::sync::mpsc::{Receiver, Sender, channel};
 mod pages;
 mod protocol;
 mod usb_service;
 use crate::protocol::{
-    ApiMessage, ChallengeResponse, LoginPayload, LoginSuccessResponse, Page, Role, VerifyPayload,
+    ApiMessage, ChallengeResponse, LoginPayload, LoginSuccessResponse, Page, Role, VerifyPayload, VolumeInfo,
 };
 
 // device port_name : "/dev/ttyACM0", device port_type :
@@ -30,6 +29,8 @@ struct BindKeyApp {
     pub login_email: String,
     pub login_password: String,
     pub auth_token: String,
+    pub detected_volumes: Vec<VolumeInfo>,
+    pub creation_state: CreationState,
 }
 
 impl BindKeyApp {
@@ -51,6 +52,14 @@ impl BindKeyApp {
             login_email: String::new(),
             login_password: String::new(),
             auth_token: String::new(),
+            detected_volumes: Vec::new(),
+            creation_state: CreationState { 
+                is_open: false, 
+                selected_disk_index: 0, 
+                volume_name: String::new(), 
+                volume_size_gb: 1,
+                status: String::new(),
+            }
         }
     }
 }

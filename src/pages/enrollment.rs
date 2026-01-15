@@ -1,18 +1,27 @@
-use eframe::egui;
-use crate::{BindKeyApp, Role, ApiMessage, protocol};
-use crate::protocol::{RegisterPayload, Command};
+use crate::protocol::{Command, RegisterPayload};
 use crate::usb_service::send_command_bindkey;
-use sha2::{Sha256, Digest};
+use crate::{ApiMessage, BindKeyApp, Role};
+use eframe::egui;
+use serialport::{SerialPortInfo, SerialPortType};
+use sha2::{Digest, Sha256};
 
 pub fn show_enrollment_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
     ui.label("Firstname :");
     ui.text_edit_singleline(&mut app.enroll_firstname);
+    ui.add_space(20.0);
+
     ui.label("Lastname :");
     ui.text_edit_singleline(&mut app.enroll_lastname);
+    ui.add_space(20.0);
+
     ui.label("Email :");
     ui.text_edit_singleline(&mut app.enroll_email);
+    ui.add_space(20.0);
+
     ui.label("Password :");
-     ui.add(egui::TextEdit::singleline(&mut app.enroll_password).password(true));
+    ui.add(egui::TextEdit::singleline(&mut app.enroll_password).password(true));
+    ui.add_space(20.0);
+
     egui::ComboBox::from_label("Role")
         .selected_text(format!("{:?}", app.enroll_role))
         .show_ui(ui, |ui| {
@@ -27,12 +36,21 @@ pub fn show_enrollment_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
         && !app.enroll_password.is_empty()
         && app.enroll_role != Role::NONE;
 
+    ui.add_space(20.0);
+
     ui.add_enabled_ui(formulaire_valide, |ui| {
         if ui.button("Validé").clicked() {
-            println!(
-                "Veuillez scanner le doigt de {} {}",
-                app.enroll_firstname, app.enroll_lastname
-            );
+            app.enroll_status = "🔌 Recherche de la clé USB...".to_string();
+
+            app.devices.clear();
+            if let Ok(liste_devices) = serialport::available_ports() {
+                for device in liste_devices {
+                    if let SerialPortType::UsbPort(_) = device.port_type {
+                        app.devices.push(device);
+                    };
+                }
+            }
+
             if let Some(device) = app.devices.first() {
                 match send_command_bindkey(&device.port_name, Command::StartEnrollment) {
                     Ok(received_data) => {
@@ -84,23 +102,30 @@ pub fn show_enrollment_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
                                     ctx.request_repaint();
                                 });
                                 app.enroll_password.clear();
+                            } else {
+                                app.enroll_status = "Erreur USB : Empreinte refusée".to_string();
                             }
+                        } else {
+                            app.enroll_status = "Erreur USB : Réponse invalide".to_string();
                         }
                     }
-                    Err(message_erreur) => {
-                        println!("{}", message_erreur);
+                    Err(e) => {
+                        app.enroll_status = format!("Erreur communication : {}", e);
                     }
                 }
-            };
+            } else {
+                app.enroll_status = "Aucune Bindkey détectée. Branchez-là !".to_string();
+            }
         };
     });
 
-    if !app.enroll_status.is_empty() {
-        ui.add_space(10.0);
-        ui.label(&app.enroll_status);
-    }
+    ui.vertical_centered(|ui| {
+        ui.add_space(20.0);
+        if !app.enroll_status.is_empty() {
+            ui.colored_label(egui::Color32::BLUE, &app.enroll_status);
+        }
+    });
 }
-
 
 pub fn hash_password_with_salt(password: &str) -> String {
     let salt = "bindkey.com";
