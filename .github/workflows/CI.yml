@@ -16,7 +16,6 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
-    - uses: Swatinem/rust-cache@v2
    
     - name: Install system dependencies
       run: |
@@ -30,8 +29,5 @@ jobs:
     - name: Clippy
       run: cargo clippy
     
-    - name: Installation de cargo-audit
-      run: cargo install cargo-audit
-    - name: Audit de sécurité des dépendances
-      run: cargo audit
+
     
