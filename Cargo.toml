@@ -28,3 +28,4 @@ sysinfo = "0.37.2"
 #Hash
 sha2 = "0.10"
 hex = "0.4"
+validator = { version = "0.20", features = ["derive"] }

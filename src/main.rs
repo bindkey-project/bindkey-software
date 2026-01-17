@@ -1,24 +1,31 @@
+pub const API_URL: &str = "http://api.bindkey.local";
 use crate::{protocol::CreationState, usb_service::send_command_bindkey};
 use eframe::egui;
 use serialport::{SerialPortInfo, SerialPortType};
+
 use std::sync::mpsc::{Receiver, Sender, channel};
 mod pages;
 mod protocol;
 mod usb_service;
 use crate::protocol::{
-    ApiMessage, ChallengeResponse, LoginPayload, LoginSuccessResponse, Page, Role, VerifyPayload, VolumeInfo,
+    ApiMessage, ChallengeResponse, LoginPayload, LoginSuccessResponse, Page, Role, VerifyPayload,
+    VolumeInfo,
 };
+use validator::{Validate, ValidationError};
 
 // device port_name : "/dev/ttyACM0", device port_type :
 //UsbPort(UsbPortInfo { vid: 0x1a86, pid: 0x55d3, serial_number: Some("5A47013078"), manufacturer: Some("1a86"), product: Some("USB Single Serial") })
 //Info quand bindkey branchée
 
+#[derive(Validate)]
 struct BindKeyApp {
     pub current_page: Page,
     pub role_user: Role,
     pub enroll_firstname: String,
     pub enroll_lastname: String,
+    #[validate(email)]
     pub enroll_email: String,
+    #[validate(length(min = 14))]
     pub enroll_password: String,
     pub enroll_role: protocol::Role,
     pub devices: Vec<SerialPortInfo>,
@@ -26,6 +33,7 @@ struct BindKeyApp {
     pub sender: Sender<ApiMessage>,
     pub login_status: String,
     pub enroll_status: String,
+    #[validate(email)]
     pub login_email: String,
     pub login_password: String,
     pub auth_token: String,
@@ -53,13 +61,13 @@ impl BindKeyApp {
             login_password: String::new(),
             auth_token: String::new(),
             detected_volumes: Vec::new(),
-            creation_state: CreationState { 
-                is_open: false, 
-                selected_disk_index: 0, 
-                volume_name: String::new(), 
+            creation_state: CreationState {
+                is_open: false,
+                selected_disk_index: 0,
+                volume_name: String::new(),
                 volume_size_gb: 1,
                 status: String::new(),
-            }
+            },
         }
     }
 }
@@ -123,7 +131,7 @@ impl eframe::App for BindKeyApp {
                         };
                         let client = reqwest::Client::new();
                         let resultat = client
-                            .post("http://localhost:3000/login/verify")
+                            .post(format!("{}/login/verify", API_URL))
                             .json(&payload)
                             .send()
                             .await;
@@ -172,22 +180,26 @@ impl eframe::App for BindKeyApp {
                 if ui.button("Accueil").clicked() {
                     self.current_page = Page::Home;
                 };
+                ui.add_space(10.0);
                 if (self.role_user == Role::ENROLLEUR || self.role_user == Role::ADMIN)
                     && ui.button("Enrôlment").clicked()
                 {
                     self.current_page = Page::Enrollment;
                 };
+                ui.add_space(10.0);
                 if ui.button("Unlock").clicked() {
                     self.current_page = Page::Unlock;
                 };
-
+                ui.add_space(10.0);
                 ui.separator();
-
+                ui.add_space(10.0);
                 if ui.button("Déconnexion").clicked() {
                     self.current_page = Page::Login;
                     self.role_user = Role::NONE;
                     self.login_password.clear();
+                    self.login_status.clear();
                 };
+                ui.add_space(10.0);
             });
         }
 

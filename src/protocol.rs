@@ -19,6 +19,12 @@ pub struct RegisterPayload {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
+pub struct ModifyPayload {
+    pub email: String, 
+    pub user_role: Role,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
 
 pub struct LoginPayload {
     pub email: String,
@@ -47,7 +53,7 @@ pub struct ChallengeResponse {
     pub challenge: String,
 }
 
-#[derive(PartialEq)]
+#[derive(PartialEq, Debug)]
 pub enum Page {
     Login,
     Home,
@@ -80,6 +86,8 @@ pub struct VolumeCreationPayload {
     pub size_gb: u32,
 }
 
+#[derive(Debug)]
+
 pub struct CreationState {
     pub is_open: bool,
     pub selected_disk_index: usize, 
@@ -88,6 +96,7 @@ pub struct CreationState {
     pub status: String,
 }
 
+#[derive(Debug)]
 pub struct VolumeInfo {
     pub name: String,
     pub mount_point: String,
