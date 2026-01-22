@@ -1,27 +1,40 @@
-name: Rust
-permissions:
-  contents: read
+name: Rust CI
 
 on:
   push:
     branches: [ "main", "Develop" ]
   pull_request:
-    branches: [ "main" ]
+    branches: [ "main", "Develop" ]
 
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  build:
-
+  test:
+    name: Test & Lint
     runs-on: ubuntu-latest
 
     steps:
     - uses: actions/checkout@v4
+    
+    - name: Install System Dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libudev-dev pkg-config libgtk-3-dev libasound2-dev libxcb-shape0-dev libxcb-xfixes0-dev
+
+    
+    - name: Rust Cache
+      uses: Swatinem/rust-cache@v2
+
+    - name: Check Formatting
+      run: cargo fmt --all -- --check
+
+    - name: Clippy (Linting)
+      run: cargo clippy 
+
     - name: Build
       run: cargo build --verbose
+
+    # 6. TESTS UNITAIRES
     - name: Run tests
       run: cargo test --verbose
-    - name: Clippy
-      run: cargo clippy
-    
