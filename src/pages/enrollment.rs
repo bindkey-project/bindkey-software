@@ -59,16 +59,15 @@ pub fn show_enrollment_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
                         serde_json::from_str::<serde_json::Value>(&received_data)
                     {
                         if json_value["status"] == "SUCCESS" {
-
                             let bk_pk = json_value["public_key"]
-                            .as_str()
-                            .unwrap_or("Unknown PK")
-                            .to_string();
+                                .as_str()
+                                .unwrap_or("Unknown PK")
+                                .to_string();
 
                             let bk_uid = json_value["uid"]
-                            .as_str()
-                            .unwrap_or("Unknown Uid")
-                            .to_string();
+                                .as_str()
+                                .unwrap_or("Unknown Uid")
+                                .to_string();
 
                             let clone_sender = app.sender.clone();
                             let ctx = ui.ctx().clone();
@@ -132,12 +131,12 @@ pub fn show_enrollment_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
         };
     });
 
-    let modif_valid = !app.enroll_email.is_empty() 
-    && app.enroll_role != Role::NONE
-    && app.enroll_email.validate_email()
-    && app.enroll_firstname.is_empty()
-    && app.enroll_lastname.is_empty()
-    && app.enroll_password.is_empty();
+    let modif_valid = !app.enroll_email.is_empty()
+        && app.enroll_role != Role::NONE
+        && app.enroll_email.validate_email()
+        && app.enroll_firstname.is_empty()
+        && app.enroll_lastname.is_empty()
+        && app.enroll_password.is_empty();
 
     ui.add_enabled_ui(modif_valid, |ui| {
         if ui.button("Modifié").clicked() {
@@ -198,7 +197,6 @@ pub fn show_enrollment_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
             }
         }
     });
-            
 
     ui.vertical_centered(|ui| {
         ui.add_space(20.0);

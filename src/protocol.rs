@@ -19,7 +19,7 @@ pub struct RegisterPayload {
     pub password: String,
     pub user_role: Role,
     pub bindkey_uid: String,
-    pub bindkey_status: StatusBindkey, 
+    pub bindkey_status: StatusBindkey,
     pub public_key: String,
 }
 
@@ -34,7 +34,7 @@ pub enum StatusBindkey {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct ModifyPayload {
-    pub email: String, 
+    pub email: String,
     pub user_role: Role,
 }
 
@@ -51,7 +51,6 @@ pub struct VerifyPayload {
     pub email: String,
     pub signature: String,
 }
-
 
 #[derive(Serialize, Deserialize, Debug)]
 

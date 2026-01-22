@@ -111,15 +111,18 @@ pub fn show_volumes_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
     ui.separator();
     ui.add_space(20.0);
 
-    let conditions = !app.device_name.is_empty()
-        && !app.device_available_space > 0;
+    let conditions = !app.device_name.is_empty() && !app.device_available_space > 0;
 
     ui.group(|ui| {
         ui.label("Nom du volume :");
         ui.text_edit_singleline(&mut app.volume_created_name);
         ui.add_space(5.0);
 
-        let max_size = if app.device_available_space > 0 {app.device_available_space} else {1};
+        let max_size = if app.device_available_space > 0 {
+            app.device_available_space
+        } else {
+            1
+        };
         ui.label(format!("Taille du volume : {} Go", app.volume_created_size));
         ui.add(egui::Slider::new(&mut app.volume_created_size, 1..=max_size).text("Go"));
 

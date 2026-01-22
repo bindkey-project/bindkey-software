@@ -55,7 +55,7 @@ pub fn show_login_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
                                 match challenge {
                                     Ok(chall) => {
                                         let le_challenge = chall.auth_challenge;
-                                        println!("{}",le_challenge);
+                                        println!("{}", le_challenge);
                                         let _ = clone_sender
                                             .send(ApiMessage::ReceivedChallenge(le_challenge));
                                     }
