@@ -1,5 +1,5 @@
-pub const API_URL: &str = "http://api.bindkey.local";
-use crate::{protocol::CreationState, usb_service::send_command_bindkey};
+pub const API_URL: &str = "https://api.bindkey.local";
+use crate::{protocol::VolumeCreationPayload, usb_service::send_command_bindkey};
 use eframe::egui;
 use serialport::{SerialPortInfo, SerialPortType};
 
@@ -20,6 +20,7 @@ use validator::{Validate, ValidationError};
 #[derive(Validate)]
 struct BindKeyApp {
     pub current_page: Page,
+    pub first_name_user: String,
     pub role_user: Role,
     pub enroll_firstname: String,
     pub enroll_lastname: String,
@@ -29,16 +30,21 @@ struct BindKeyApp {
     pub enroll_password: String,
     pub enroll_role: protocol::Role,
     pub devices: Vec<SerialPortInfo>,
+    pub device_name: String,
+    pub device_size: String,
+    pub device_available_space: u32,
+    pub volume_created_name: String,
+    pub volume_created_size: u32,
     pub receiver: Receiver<ApiMessage>,
     pub sender: Sender<ApiMessage>,
     pub login_status: String,
     pub enroll_status: String,
+    pub volume_status: String,
     #[validate(email)]
     pub login_email: String,
     pub login_password: String,
     pub auth_token: String,
     pub detected_volumes: Vec<VolumeInfo>,
-    pub creation_state: CreationState,
 }
 
 impl BindKeyApp {
@@ -46,6 +52,7 @@ impl BindKeyApp {
         let (tx, rx) = channel();
         BindKeyApp {
             current_page: Page::Login,
+            first_name_user: String::new(),
             role_user: Role::NONE,
             enroll_firstname: String::new(),
             enroll_lastname: String::new(),
@@ -53,21 +60,20 @@ impl BindKeyApp {
             enroll_password: String::new(),
             enroll_role: Role::NONE,
             devices: Vec::new(),
+            device_name: String::new(),
+            device_size: String::new(),
+            device_available_space: 0,
+            volume_created_name: String::new(),
+            volume_created_size: 1,
             receiver: rx,
             sender: tx,
             login_status: String::new(),
             enroll_status: String::new(),
+            volume_status: String::new(),
             login_email: String::new(),
             login_password: String::new(),
             auth_token: String::new(),
             detected_volumes: Vec::new(),
-            creation_state: CreationState {
-                is_open: false,
-                selected_disk_index: 0,
-                volume_name: String::new(),
-                volume_size_gb: 1,
-                status: String::new(),
-            },
         }
     }
 }
@@ -143,6 +149,7 @@ impl eframe::App for BindKeyApp {
                                             let _ = clone_sender.send(ApiMessage::LoginSuccess(
                                                 response.role,
                                                 response.token,
+                                                response.first_name,
                                             ));
                                         }
                                         Err(e) => {
@@ -163,9 +170,10 @@ impl eframe::App for BindKeyApp {
                         }
                     });
                 }
-                ApiMessage::LoginSuccess(role, token) => {
+                ApiMessage::LoginSuccess(role, token, first_name) => {
                     self.role_user = role;
                     self.auth_token = token;
+                    self.first_name_user = first_name;
 
                     self.login_status = String::new();
                     self.login_password = String::new();

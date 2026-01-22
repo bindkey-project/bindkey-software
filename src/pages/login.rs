@@ -38,14 +38,15 @@ pub fn show_login_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
                 let clone_login_email = app.login_email.clone();
                 let clone_login_password = hash_password_with_salt(&app.login_password);
                 let ctx = ui.ctx().clone();
+                println!("{}", clone_login_password);
 
                 tokio::spawn(async move {
                     let payload = LoginPayload {
                         email: clone_login_email,
-                        password: clone_login_password,
+                        password_hash: clone_login_password,
                     };
                     let client = reqwest::Client::new();
-                    let url = format!("{}/login", API_URL);
+                    let url = format!("{}/sessions/login", API_URL);
                     let resultat = client.post(&url).json(&payload).send().await;
                     match resultat {
                         Ok(response) => {
@@ -53,7 +54,8 @@ pub fn show_login_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
                                 let challenge = response.json::<ChallengeResponse>().await;
                                 match challenge {
                                     Ok(chall) => {
-                                        let le_challenge = chall.challenge;
+                                        let le_challenge = chall.auth_challenge;
+                                        println!("{}",le_challenge);
                                         let _ = clone_sender
                                             .send(ApiMessage::ReceivedChallenge(le_challenge));
                                     }

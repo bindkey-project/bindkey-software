@@ -51,7 +51,7 @@ pub fn show_enrollment_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
 
     ui.add_enabled_ui(formulaire_valide, |ui| {
         if ui.button("Validé").clicked() {
-            let resultat_usb = get_bindkey(app, ui);
+            let resultat_usb = get_bindkey(app, ui, Command::StartEnrollment);
 
             match resultat_usb {
                 Ok(received_data) => {
@@ -59,6 +59,17 @@ pub fn show_enrollment_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
                         serde_json::from_str::<serde_json::Value>(&received_data)
                     {
                         if json_value["status"] == "SUCCESS" {
+
+                            let bk_pk = json_value["public_key"]
+                            .as_str()
+                            .unwrap_or("Unknown PK")
+                            .to_string();
+
+                            let bk_uid = json_value["uid"]
+                            .as_str()
+                            .unwrap_or("Unknown Uid")
+                            .to_string();
+
                             let clone_sender = app.sender.clone();
                             let ctx = ui.ctx().clone();
                             let clone_firstname = app.enroll_firstname.clone();
@@ -66,6 +77,8 @@ pub fn show_enrollment_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
                             let clone_email = app.enroll_email.clone();
                             let hash_password = hash_password_with_salt(&app.enroll_password);
                             let clone_user_role = app.enroll_role.clone();
+                            let clone_bk_pk = bk_pk.clone();
+                            let clone_bk_uid = bk_uid.clone();
                             println!("{:?}", clone_user_role);
 
                             tokio::spawn(async move {
@@ -75,6 +88,9 @@ pub fn show_enrollment_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
                                     email: clone_email,
                                     password: hash_password,
                                     user_role: clone_user_role,
+                                    bindkey_status: crate::protocol::StatusBindkey::ACTIVE,
+                                    public_key: clone_bk_pk,
+                                    bindkey_uid: clone_bk_uid,
                                 };
                                 let client = reqwest::Client::new();
                                 let url = format!("{}/users", API_URL);
@@ -125,7 +141,7 @@ pub fn show_enrollment_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
 
     ui.add_enabled_ui(modif_valid, |ui| {
         if ui.button("Modifié").clicked() {
-            let resultat_usb = get_bindkey(app, ui);
+            let resultat_usb = get_bindkey(app, ui, Command::Modify);
 
             match resultat_usb {
                 Ok(received_data) => {
