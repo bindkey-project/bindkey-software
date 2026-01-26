@@ -1,8 +1,7 @@
 use crate::protocol::{Command, ModifyPayload, RegisterPayload};
-use crate::usb_service::{get_bindkey, send_command_bindkey};
+use crate::usb_service::{get_bindkey};
 use crate::{API_URL, ApiMessage, BindKeyApp, Role};
 use eframe::egui;
-use serialport::{SerialPortInfo, SerialPortType};
 use sha2::{Digest, Sha256};
 use validator::{self, ValidateEmail, ValidateLength};
 
@@ -76,6 +75,7 @@ pub fn show_enrollment_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
                             let clone_email = app.enroll_email.clone();
                             let hash_password = hash_password_with_salt(&app.enroll_password);
                             let clone_user_role = app.enroll_role.clone();
+                            let clone_auth_token = app.auth_token.clone();
                             let clone_bk_pk = bk_pk.clone();
                             let clone_bk_uid = bk_uid.clone();
                             println!("{:?}", clone_user_role);
@@ -93,7 +93,7 @@ pub fn show_enrollment_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
                                 };
                                 let client = reqwest::Client::new();
                                 let url = format!("{}/users", API_URL);
-                                let resultat = client.post(&url).json(&payload).send().await;
+                                let resultat = client.post(&url).json(&payload).bearer_auth(clone_auth_token).send().await;
 
                                 match resultat {
                                     Ok(response) => {
@@ -152,6 +152,7 @@ pub fn show_enrollment_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
                             let ctx = ui.ctx().clone();
                             let clone_email = app.enroll_email.clone();
                             let clone_user_role = app.enroll_role.clone();
+                            let clone_auth_token = app.auth_token.clone();
 
                             tokio::spawn(async move {
                                 let payload = ModifyPayload {
@@ -160,7 +161,7 @@ pub fn show_enrollment_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
                                 };
                                 let client = reqwest::Client::new();
                                 let url = format!("{}/users", API_URL);
-                                let resultat = client.put(&url).json(&payload).send().await;
+                                let resultat = client.put(&url).json(&payload).bearer_auth(clone_auth_token).send().await;
 
                                 match resultat {
                                     Ok(response) => {

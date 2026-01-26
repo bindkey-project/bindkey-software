@@ -1,6 +1,5 @@
 use crate::BindKeyApp;
 use crate::protocol::Command;
-use egui::Ui;
 use serde_json::to_string;
 use serialport::SerialPortType;
 use std::io::{BufRead, BufReader, Write};
@@ -36,8 +35,6 @@ pub fn get_bindkey(
     cmd: Command,
 ) -> Result<String, String> {
     app.enroll_status = "🔌 Recherche de la clé USB...".to_string();
-
-    println!("{:?}", app.enroll_role);
 
     let bypass_usb = true;
 

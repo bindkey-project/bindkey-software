@@ -55,7 +55,7 @@ pub struct VerifyPayload {
 #[derive(Serialize, Deserialize, Debug)]
 
 pub struct LoginSuccessResponse {
-    pub token: String,
+    pub local_token: String,
     pub role: Role,
     pub first_name: String,
 }

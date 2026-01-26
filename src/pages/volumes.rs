@@ -1,11 +1,10 @@
 use crate::{
-    BindKeyApp, VolumeInfo,
-    protocol::{self, VolumeCreationPayload},
-    usb_service::{get_bindkey, send_command_bindkey},
+    BindKeyApp,
+    protocol::{self, ApiMessage},
+    usb_service::send_command_bindkey,
 };
 use eframe::egui;
 use serialport::SerialPortType;
-use sysinfo::Disks;
 
 pub fn show_volumes_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
     ui.heading("Volumes et chiffrement");
@@ -16,7 +15,7 @@ pub fn show_volumes_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
             .button("Afficher le périphérique branché sur la bindkey")
             .clicked()
         {
-            app.volume_status = "🔌 Recherche de la clé USB...".to_string();
+            
 
     let bypass_usb = true;
 
@@ -130,6 +129,7 @@ pub fn show_volumes_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
             if ui.button("Créer un volume chiffré").clicked() {
                 //app.creation_state.is_open = true;
                 //app.creation_state.status = String::new();
+                println!("Coucou");
             }
         })
     });

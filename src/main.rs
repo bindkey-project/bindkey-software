@@ -1,5 +1,5 @@
 pub const API_URL: &str = "https://api.bindkey.local";
-use crate::{protocol::VolumeCreationPayload, usb_service::send_command_bindkey};
+use crate::{usb_service::send_command_bindkey};
 use eframe::egui;
 use serialport::{SerialPortInfo, SerialPortType};
 
@@ -9,9 +9,8 @@ mod protocol;
 mod usb_service;
 use crate::protocol::{
     ApiMessage, ChallengeResponse, LoginPayload, LoginSuccessResponse, Page, Role, VerifyPayload,
-    VolumeInfo,
 };
-use validator::{Validate, ValidationError};
+use validator::{Validate};
 
 // device port_name : "/dev/ttyACM0", device port_type :
 //UsbPort(UsbPortInfo { vid: 0x1a86, pid: 0x55d3, serial_number: Some("5A47013078"), manufacturer: Some("1a86"), product: Some("USB Single Serial") })
@@ -44,7 +43,6 @@ struct BindKeyApp {
     pub login_email: String,
     pub login_password: String,
     pub auth_token: String,
-    pub detected_volumes: Vec<VolumeInfo>,
 }
 
 impl BindKeyApp {
@@ -73,7 +71,6 @@ impl BindKeyApp {
             login_email: String::new(),
             login_password: String::new(),
             auth_token: String::new(),
-            detected_volumes: Vec::new(),
         }
     }
 }
@@ -137,7 +134,7 @@ impl eframe::App for BindKeyApp {
                         };
                         let client = reqwest::Client::new();
                         let resultat = client
-                            .post(format!("{}/login/verify", API_URL))
+                            .post(format!("{}/sessions/verify", API_URL))
                             .json(&payload)
                             .send()
                             .await;
@@ -148,7 +145,7 @@ impl eframe::App for BindKeyApp {
                                         Ok(response) => {
                                             let _ = clone_sender.send(ApiMessage::LoginSuccess(
                                                 response.role,
-                                                response.token,
+                                                response.local_token,
                                                 response.first_name,
                                             ));
                                         }
@@ -206,6 +203,7 @@ impl eframe::App for BindKeyApp {
                     self.role_user = Role::NONE;
                     self.login_password.clear();
                     self.login_status.clear();
+                    self.auth_token.clear();
                 };
                 ui.add_space(10.0);
             });
