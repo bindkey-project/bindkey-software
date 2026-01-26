@@ -32,6 +32,12 @@ jobs:
     - name: Clippy (Linting)
       run: cargo clippy 
 
+    - name: Install cargo-audit
+      run: cargo install cargo-audit
+      
+    - name: Run Security Audit
+      run: cargo audit
+
     - name: Build
       run: cargo build --verbose
 
