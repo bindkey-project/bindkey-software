@@ -14,8 +14,7 @@ pub fn show_volumes_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
         if ui
             .button("Afficher le périphérique branché sur la bindkey")
             .clicked()
-        {
-            
+    {
 
     let bypass_usb = true;
 

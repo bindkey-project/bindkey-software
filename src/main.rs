@@ -1,5 +1,5 @@
 pub const API_URL: &str = "https://api.bindkey.local";
-use crate::{usb_service::send_command_bindkey};
+use crate::usb_service::send_command_bindkey;
 use eframe::egui;
 use serialport::{SerialPortInfo, SerialPortType};
 
@@ -10,7 +10,7 @@ mod usb_service;
 use crate::protocol::{
     ApiMessage, ChallengeResponse, LoginPayload, LoginSuccessResponse, Page, Role, VerifyPayload,
 };
-use validator::{Validate};
+use validator::Validate;
 
 // device port_name : "/dev/ttyACM0", device port_type :
 //UsbPort(UsbPortInfo { vid: 0x1a86, pid: 0x55d3, serial_number: Some("5A47013078"), manufacturer: Some("1a86"), product: Some("USB Single Serial") })
