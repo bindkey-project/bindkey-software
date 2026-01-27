@@ -31,13 +31,14 @@ pub fn show_login_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
                 app.login_status = "Veuillez remplir correctement tous les champs".to_string();
             } else {
                 app.login_status = "Connexion en cours...".to_string();
-                //app.role_user = crate::protocol::Role::ADMIN;
-                //app.current_page = crate::protocol::Page::Home;
+                app.role_user = crate::protocol::Role::ADMIN;
+                app.current_page = crate::protocol::Page::Home;
 
                 let clone_sender = app.sender.clone();
                 let clone_login_email = app.login_email.clone();
                 let clone_login_password = hash_password_with_salt(&app.login_password);
                 let ctx = ui.ctx().clone();
+                let clone_url = app.config.api_url.clone();
                 println!("{}", clone_login_password);
 
                 tokio::spawn(async move {
@@ -46,7 +47,7 @@ pub fn show_login_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
                         password_hash: clone_login_password,
                     };
                     let client = reqwest::Client::new();
-                    let url = format!("{}/sessions/login", API_URL);
+                    let url = format!("{}/sessions/login", clone_url);
                     let resultat = client.post(&url).json(&payload).send().await;
                     match resultat {
                         Ok(response) => {
@@ -56,27 +57,32 @@ pub fn show_login_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
                                     Ok(chall) => {
                                         let le_challenge = chall.auth_challenge;
                                         let session_id = chall.session_id;
-                                        println!("{}", le_challenge);
+                                        println!("{}, {}", le_challenge, session_id);
                                         let _ = clone_sender.send(ApiMessage::ReceivedChallenge(
                                             le_challenge,
                                             session_id,
                                         ));
                                     }
-                                    Err(_) => {
+                                    Err(e) => {
                                         let _ = clone_sender.send(ApiMessage::LoginError(
-                                            "Erreur de communication avec le serveur".to_string(),
+                                            format!(
+                                                "Erreur de communication avec le serveur: {}",
+                                                e
+                                            )
+                                            .to_string(),
                                         ));
                                     }
                                 }
                             } else {
                                 let _ = clone_sender.send(ApiMessage::LoginError(
-                                    format!("Identifiants invalides: {}", response.status()).to_string(),
+                                    format!("Identifiants invalides: {}", response.status())
+                                        .to_string(),
                                 ));
                             }
                         }
-                        Err(_) => {
+                        Err(e) => {
                             let _ = clone_sender.send(ApiMessage::LoginError(
-                                "Impossible de se connecter au serveur".to_string(),
+                                format!("Impossible de se connecter au serveur {}", e).to_string(),
                             ));
                         }
                     }

@@ -4,9 +4,11 @@ use eframe::egui;
 use serialport::{SerialPortInfo, SerialPortType};
 
 use std::sync::mpsc::{Receiver, Sender, channel};
+mod config;
 mod pages;
 mod protocol;
 mod usb_service;
+use crate::config::AppConfig;
 use crate::pages::enrollment::hash_password_with_salt;
 use crate::protocol::{
     ApiMessage, ChallengeResponse, LoginPayload, LoginSuccessResponse, ModifyPayload, Page,
@@ -45,12 +47,13 @@ struct BindKeyApp {
     pub login_email: String,
     pub login_password: String,
     pub auth_token: String,
-    pub session_id: String,
+    pub config: AppConfig,
 }
 
 impl BindKeyApp {
     fn new(cc: &eframe::CreationContext<'_>) -> Self {
         let (tx, rx) = channel();
+        let config = AppConfig::load();
         BindKeyApp {
             current_page: Page::Login,
             first_name_user: String::new(),
@@ -74,7 +77,7 @@ impl BindKeyApp {
             login_email: String::new(),
             login_password: String::new(),
             auth_token: String::new(),
-            session_id: String::new(),
+            config,
         }
     }
 }
@@ -108,6 +111,7 @@ impl eframe::App for BindKeyApp {
                             let clone_auth_token = self.auth_token.clone();
                             let clone_bk_pk = bk_pk.clone();
                             let clone_bk_uid = bk_uid.clone();
+                            let clone_url = self.config.api_url.clone();
                             println!("{:?}", clone_user_role);
 
                             tokio::spawn(async move {
@@ -122,7 +126,7 @@ impl eframe::App for BindKeyApp {
                                     bindkey_uid: clone_bk_uid,
                                 };
                                 let client = reqwest::Client::new();
-                                let url = format!("{}/users", API_URL);
+                                let url = format!("{}/users", clone_url);
                                 let resultat = client
                                     .post(&url)
                                     .json(&payload)
@@ -165,13 +169,14 @@ impl eframe::App for BindKeyApp {
                             let clone_email = self.enroll_email.clone();
                             let clone_user_role = self.enroll_role.clone();
                             let clone_auth_token = self.auth_token.clone();
+                            let clone_url = self.config.api_url.clone();
                             tokio::spawn(async move {
                                 let payload = ModifyPayload {
                                     email: clone_email,
                                     user_role: clone_user_role,
                                 };
                                 let client = reqwest::Client::new();
-                                let url = format!("{}/users", API_URL);
+                                let url = format!("{}/users", clone_url);
                                 let resultat = client
                                     .put(&url)
                                     .json(&payload)
@@ -215,18 +220,19 @@ impl eframe::App for BindKeyApp {
                 ApiMessage::ReceivedChallenge(le_challenge, session_id) => {
                     self.login_status =
                         "Challenge reçue, communication avec la bindkey en cours".to_string();
-                    self.devices.clear();
-                    if let Ok(liste_devices) = serialport::available_ports() {
-                        for device in liste_devices {
-                            if let SerialPortType::UsbPort(_) = device.port_type {
-                                self.devices.push(device);
-                            };
+                    let clone_sender = self.sender.clone();
+                    tokio::spawn(async move {
+                        let mut port_name = String::new();
+                        if let Ok(ports) = serialport::available_ports() {
+                            for p in ports {
+                                if let SerialPortType::UsbPort(_) = p.port_type {
+                                    port_name = p.port_name;
+                                    break;
+                                }
+                            }
                         }
-                    }
-                    if let Some(device) = self.devices.first() {
-                        let clone_sender = self.sender.clone();
-                        let port_name = device.port_name.clone();
-                        tokio::spawn(async move {
+
+                        if !port_name.is_empty() {
                             match send_command_bindkey(
                                 &port_name,
                                 protocol::Command::SignChallenge(le_challenge),
@@ -240,10 +246,11 @@ impl eframe::App for BindKeyApp {
                                         clone_sender.send(ApiMessage::LoginError(message_erreur));
                                 }
                             }
-                        });
-                    } else {
-                        self.login_status = "Aucune BindKey détectée. Branchez la clé.".to_string();
-                    }
+                        } else {
+                            let _ = clone_sender
+                                .send(ApiMessage::LoginError("Clé non détectée".to_string()));
+                        }
+                    });
                 }
                 ApiMessage::SignedChallenge(signature, session_id) => {
                     self.login_status =
@@ -251,6 +258,7 @@ impl eframe::App for BindKeyApp {
                     let clone_session_id = session_id.clone();
                     let clone_signature = signature.clone();
                     let clone_sender = self.sender.clone();
+                    let clone_url = self.config.api_url.clone();
 
                     tokio::spawn(async move {
                         let payload = VerifyPayload {
@@ -259,7 +267,7 @@ impl eframe::App for BindKeyApp {
                         };
                         let client = reqwest::Client::new();
                         let resultat = client
-                            .post(format!("{}/sessions/verify", API_URL))
+                            .post(format!("{}/sessions/verify", clone_url))
                             .json(&payload)
                             .send()
                             .await;
@@ -310,6 +318,7 @@ impl eframe::App for BindKeyApp {
                             let clone_volume_name = self.volume_created_name.clone();
                             let clone_volume_size = self.volume_created_size.clone();
                             let clone_device_name = self.device_name.clone();
+                            let clone_url = self.config.api_url.clone();
                             let encrypted_key = json_value["encrypted_key"]
                                 .as_str()
                                 .unwrap_or("Unknown volume key")
@@ -323,7 +332,7 @@ impl eframe::App for BindKeyApp {
                                 };
                                 let client = reqwest::Client::new();
                                 let resultat = client
-                                    .post(format!("{}/volumes", API_URL))
+                                    .post(format!("{}/volumes", clone_url))
                                     .json(&payload)
                                     .bearer_auth(clone_auth_token)
                                     .send()
@@ -358,6 +367,20 @@ impl eframe::App for BindKeyApp {
                 ApiMessage::VolumeCreationStatus(texte) => {
                     self.volume_status = texte.to_string();
                 }
+                ApiMessage::VolumeInfoReceived(data) => {
+                    if let Ok(json) = serde_json::from_str::<serde_json::Value>(&data) {
+                        if json["status"] == "SUCCESS" {
+                            self.device_name =
+                                json["device_name"].as_str().unwrap_or("?").to_string();
+                            self.device_size =
+                                json["device_size"].as_str().unwrap_or("?").to_string();
+                            if let Some(s) = json["device_available_size"].as_str() {
+                                self.device_available_space = s.parse().unwrap_or(0);
+                            }
+                            self.volume_status = "Disque analysé avec succès.".to_string();
+                        }
+                    }
+                }
             }
         }
 
@@ -385,6 +408,9 @@ impl eframe::App for BindKeyApp {
                     self.login_password.clear();
                     self.login_status.clear();
                     self.auth_token.clear();
+                    self.first_name_user.clear();
+                    self.enroll_firstname.clear();
+                    self.enroll_lastname.clear();
                 };
                 ui.add_space(10.0);
             });

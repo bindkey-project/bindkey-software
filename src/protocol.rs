@@ -94,6 +94,7 @@ pub enum ApiMessage {
     LoginSuccess(Role, String, String),
     VolumeCreationSuccess(String),
     VolumeCreationStatus(String),
+    VolumeInfoReceived(String),
 }
 
 #[derive(Serialize, Deserialize, Debug)]
