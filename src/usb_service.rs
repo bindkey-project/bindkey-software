@@ -1,7 +1,5 @@
-use crate::BindKeyApp;
 use crate::protocol::Command;
 use serde_json::to_string;
-use serialport::SerialPortType;
 use std::io::{BufRead, BufReader, Write};
 use std::time::Duration;
 
@@ -27,44 +25,4 @@ pub fn send_command_bindkey(port: &String, command: Command) -> Result<String, S
         .map_err(|e| format!("Erreur lecture (Timeout ?) : {}", e))?;
     let response_clean = response.trim().to_string();
     Ok(response_clean)
-}
-
-pub fn get_bindkey(
-    app: &mut BindKeyApp,
-    ui: &mut egui::Ui,
-    cmd: Command,
-) -> Result<String, String> {
-    app.enroll_status = "🔌 Recherche de la clé USB...".to_string();
-
-    let bypass_usb = true;
-
-    app.enroll_status = if bypass_usb {
-        "🛠️ MODE SIMULATION : Bypass USB activé...".to_string()
-    } else {
-        "🔌 Recherche de la clé USB...".to_string()
-    };
-
-    let resultat_usb: Result<String, String>;
-
-    if bypass_usb {
-        println!(">> SIMULATION : On fait comme si la clé avait dit OUI");
-        resultat_usb = Ok(r#"{"status": "SUCCESS", "uid": "SIMULATED-BK-999", "public_key": "simulated-key-xyz"}"#
-        .to_string());
-    } else {
-        app.devices.clear();
-        if let Ok(liste_devices) = serialport::available_ports() {
-            for device in liste_devices {
-                if let SerialPortType::UsbPort(_) = device.port_type {
-                    app.devices.push(device);
-                };
-            }
-        }
-
-        if let Some(device) = app.devices.first() {
-            resultat_usb = send_command_bindkey(&device.port_name, cmd);
-        } else {
-            resultat_usb = Err("Aucune Bindkey détectée. Branchez-là !".to_string());
-        }
-    }
-    return resultat_usb;
 }

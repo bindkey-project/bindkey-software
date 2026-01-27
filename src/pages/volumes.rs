@@ -1,6 +1,6 @@
 use crate::{
     BindKeyApp,
-    protocol::{self, ApiMessage},
+    protocol::{self, ApiMessage, VolumeCreationPayload},
     usb_service::send_command_bindkey,
 };
 use eframe::egui;
@@ -126,24 +126,81 @@ pub fn show_volumes_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
 
         ui.add_enabled_ui(conditions, |ui| {
             if ui.button("Créer un volume chiffré").clicked() {
-                //app.creation_state.is_open = true;
-                //app.creation_state.status = String::new();
-                println!("Coucou");
+                let bypass_usb = true;
+
+                app.enroll_status = if bypass_usb {
+                    "🛠️ MODE SIMULATION : Bypass USB activé...".to_string()
+                } else {
+                    "🔌 Recherche de la clé USB...".to_string()
+                };
+
+                let clone_sender = app.sender.clone();
+                let clone_volume_name = app.volume_created_name.clone();
+                let clone_volume_size = app.volume_created_size.clone();
+
+                tokio::spawn(async move {
+                    let resultat_usb: Result<String, String>;
+
+                    if bypass_usb {
+                        println!(">> SIMULATION : On fait comme si la clé avait dit OUI");
+                        resultat_usb = Ok(
+                            r#"{"status": "SUCCESS", "encrypted_key": "SIMULATED-Key-999"}"#
+                                .to_string(),
+                        );
+                    } else {
+                        let mut port_name = String::new();
+                        if let Ok(ports) = serialport::available_ports() {
+                            for p in ports {
+                                if let SerialPortType::UsbPort(_) = p.port_type {
+                                    port_name = p.port_name;
+                                    break;
+                                };
+                            }
+                        }
+
+                        if !port_name.is_empty() {
+                            let volumepayload = VolumeCreationPayload {
+                                volume_name: clone_volume_name,
+                                size_gb: clone_volume_size,
+                            };
+                            resultat_usb = send_command_bindkey(
+                                &port_name,
+                                protocol::Command::CreateVolume(volumepayload),
+                            );
+                        } else {
+                            resultat_usb =
+                                Err("Aucune Bindkey détectée. Branchez-là !".to_string());
+                        }
+                    }
+
+                    match resultat_usb {
+                        Ok(data) => {
+                            let _ = clone_sender.send(ApiMessage::VolumeCreationSuccess(data));
+                        }
+                        Err(e) => {
+                            let _ = clone_sender.send(ApiMessage::VolumeCreationStatus(format!(
+                                "Erreur USB: {}",
+                                e
+                            )));
+                        }
+                    }
+                });
             }
-        })
-    });
+        });
 
-    ui.add_space(20.0);
-    ui.separator();
-    ui.add_space(20.0);
-
-    ui.vertical_centered(|ui| {
         ui.add_space(20.0);
-        if !app.volume_status.is_empty() {
-            ui.colored_label(egui::Color32::BLUE, &app.volume_status);
-        }
+        ui.separator();
+        ui.add_space(20.0);
+
+        ui.vertical_centered(|ui| {
+            ui.add_space(20.0);
+            if !app.volume_status.is_empty() {
+                ui.colored_label(egui::Color32::BLUE, &app.volume_status);
+            }
+        });
     });
 }
+
 /*    if app.creation_state.is_open {
         // On ouvre une petite fenêtre au dessus du reste
         egui::Window::new("Assistant de Création de Volume")

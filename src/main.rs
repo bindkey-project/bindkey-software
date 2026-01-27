@@ -7,8 +7,10 @@ use std::sync::mpsc::{Receiver, Sender, channel};
 mod pages;
 mod protocol;
 mod usb_service;
+use crate::pages::enrollment::hash_password_with_salt;
 use crate::protocol::{
-    ApiMessage, ChallengeResponse, LoginPayload, LoginSuccessResponse, Page, Role, VerifyPayload,
+    ApiMessage, ChallengeResponse, LoginPayload, LoginSuccessResponse, ModifyPayload, Page,
+    RegisterPayload, Role, VerifyPayload, VolumeCreatedInfo,
 };
 use validator::Validate;
 
@@ -43,6 +45,7 @@ struct BindKeyApp {
     pub login_email: String,
     pub login_password: String,
     pub auth_token: String,
+    pub session_id: String,
 }
 
 impl BindKeyApp {
@@ -71,6 +74,7 @@ impl BindKeyApp {
             login_email: String::new(),
             login_password: String::new(),
             auth_token: String::new(),
+            session_id: String::new(),
         }
     }
 }
@@ -82,12 +86,133 @@ impl eframe::App for BindKeyApp {
                 ApiMessage::EnrollmentSuccess(texte) => {
                     self.enroll_status = texte.to_string();
                 }
+                ApiMessage::EnrollmentUsbSuccess(data) => {
+                    if let Ok(json_value) = serde_json::from_str::<serde_json::Value>(&data) {
+                        if json_value["status"] == "SUCCESS" {
+                            let bk_pk = json_value["public_key"]
+                                .as_str()
+                                .unwrap_or("Unknown PK")
+                                .to_string();
+
+                            let bk_uid = json_value["uid"]
+                                .as_str()
+                                .unwrap_or("Unknown Uid")
+                                .to_string();
+
+                            let clone_sender = self.sender.clone();
+                            let clone_firstname = self.enroll_firstname.clone();
+                            let clone_lastname = self.enroll_lastname.clone();
+                            let clone_email = self.enroll_email.clone();
+                            let hash_password = hash_password_with_salt(&self.enroll_password);
+                            let clone_user_role = self.enroll_role.clone();
+                            let clone_auth_token = self.auth_token.clone();
+                            let clone_bk_pk = bk_pk.clone();
+                            let clone_bk_uid = bk_uid.clone();
+                            println!("{:?}", clone_user_role);
+
+                            tokio::spawn(async move {
+                                let payload = RegisterPayload {
+                                    first_name: clone_firstname,
+                                    last_name: clone_lastname,
+                                    email: clone_email,
+                                    password: hash_password,
+                                    user_role: clone_user_role,
+                                    bindkey_status: crate::protocol::StatusBindkey::ACTIVE,
+                                    public_key: clone_bk_pk,
+                                    bindkey_uid: clone_bk_uid,
+                                };
+                                let client = reqwest::Client::new();
+                                let url = format!("{}/users", API_URL);
+                                let resultat = client
+                                    .post(&url)
+                                    .json(&payload)
+                                    .bearer_auth(clone_auth_token)
+                                    .send()
+                                    .await;
+
+                                match resultat {
+                                    Ok(response) => {
+                                        if response.status().is_success() {
+                                            let _ =
+                                                clone_sender.send(ApiMessage::EnrollmentSuccess(
+                                                    " Enrolé (API OK) !".to_string(),
+                                                ));
+                                        } else {
+                                            let _ = clone_sender.send(ApiMessage::EnrollmentError(
+                                                " Refus serveur (API KO)".to_string(),
+                                            ));
+                                        }
+                                    }
+                                    Err(e) => {
+                                        let _ = clone_sender.send(ApiMessage::EnrollmentError(
+                                            format!(" Erreur Réseau : {}", e),
+                                        ));
+                                    }
+                                }
+                            });
+                            self.enroll_password.clear();
+                        } else {
+                            self.enroll_status = " Erreur USB : Statut non SUCCESS".to_string();
+                        }
+                    } else {
+                        self.enroll_status = " Erreur USB : JSON invalide".to_string();
+                    }
+                }
+                ApiMessage::ModificationUsbSuccess(data) => {
+                    if let Ok(json_value) = serde_json::from_str::<serde_json::Value>(&data) {
+                        if json_value["status"] == "SUCCESS" {
+                            let clone_sender = self.sender.clone();
+                            let clone_email = self.enroll_email.clone();
+                            let clone_user_role = self.enroll_role.clone();
+                            let clone_auth_token = self.auth_token.clone();
+                            tokio::spawn(async move {
+                                let payload = ModifyPayload {
+                                    email: clone_email,
+                                    user_role: clone_user_role,
+                                };
+                                let client = reqwest::Client::new();
+                                let url = format!("{}/users", API_URL);
+                                let resultat = client
+                                    .put(&url)
+                                    .json(&payload)
+                                    .bearer_auth(clone_auth_token)
+                                    .send()
+                                    .await;
+
+                                match resultat {
+                                    Ok(response) => {
+                                        if response.status().is_success() {
+                                            let _ =
+                                                clone_sender.send(ApiMessage::EnrollmentSuccess(
+                                                    " Rôle de l'utilisateur modifié !".to_string(),
+                                                ));
+                                        } else {
+                                            let _ = clone_sender.send(ApiMessage::EnrollmentError(
+                                                " Refus serveur (API KO)".to_string(),
+                                            ));
+                                        }
+                                    }
+                                    Err(e) => {
+                                        let _ = clone_sender.send(ApiMessage::EnrollmentError(
+                                            format!(" Erreur Réseau : {}", e),
+                                        ));
+                                    }
+                                }
+                            });
+                            self.enroll_password.clear();
+                        } else {
+                            self.enroll_status = " Erreur USB : Statut non SUCCESS".to_string();
+                        }
+                    } else {
+                        self.enroll_status = " Erreur USB : JSON invalide".to_string();
+                    }
+                }
                 ApiMessage::LoginError(texte) => {
                     self.login_status = texte.to_string();
                 }
                 ApiMessage::EnrollmentError(texte) => self.enroll_status = texte.to_string(),
 
-                ApiMessage::ReceivedChallenge(le_challenge) => {
+                ApiMessage::ReceivedChallenge(le_challenge, session_id) => {
                     self.login_status =
                         "Challenge reçue, communication avec la bindkey en cours".to_string();
                     self.devices.clear();
@@ -107,8 +232,8 @@ impl eframe::App for BindKeyApp {
                                 protocol::Command::SignChallenge(le_challenge),
                             ) {
                                 Ok(response) => {
-                                    let _ =
-                                        clone_sender.send(ApiMessage::SignedChallenge(response));
+                                    let _ = clone_sender
+                                        .send(ApiMessage::SignedChallenge(response, session_id));
                                 }
                                 Err(message_erreur) => {
                                     let _ =
@@ -120,16 +245,16 @@ impl eframe::App for BindKeyApp {
                         self.login_status = "Aucune BindKey détectée. Branchez la clé.".to_string();
                     }
                 }
-                ApiMessage::SignedChallenge(signature) => {
+                ApiMessage::SignedChallenge(signature, session_id) => {
                     self.login_status =
                         "Signature générée. Vérification finale auprès du serveur".to_string();
-                    let clone_email = self.login_email.clone();
+                    let clone_session_id = session_id.clone();
                     let clone_signature = signature.clone();
                     let clone_sender = self.sender.clone();
 
                     tokio::spawn(async move {
                         let payload = VerifyPayload {
-                            email: clone_email,
+                            session_id: clone_session_id,
                             signature: clone_signature,
                         };
                         let client = reqwest::Client::new();
@@ -176,6 +301,62 @@ impl eframe::App for BindKeyApp {
                     self.login_password = String::new();
 
                     self.current_page = Page::Home;
+                }
+                ApiMessage::VolumeCreationSuccess(data) => {
+                    if let Ok(json_value) = serde_json::from_str::<serde_json::Value>(&data) {
+                        if json_value["status"] == "SUCCESS" {
+                            let clone_sender = self.sender.clone();
+                            let clone_auth_token = self.auth_token.clone();
+                            let clone_volume_name = self.volume_created_name.clone();
+                            let clone_volume_size = self.volume_created_size.clone();
+                            let clone_device_name = self.device_name.clone();
+                            let encrypted_key = json_value["encrypted_key"]
+                                .as_str()
+                                .unwrap_or("Unknown volume key")
+                                .to_string();
+                            tokio::spawn(async move {
+                                let payload = VolumeCreatedInfo {
+                                    device_name: clone_device_name,
+                                    volume_name: clone_volume_name,
+                                    volume_size_gb: clone_volume_size,
+                                    encrypted_key: encrypted_key,
+                                };
+                                let client = reqwest::Client::new();
+                                let resultat = client
+                                    .post(format!("{}/volumes", API_URL))
+                                    .json(&payload)
+                                    .bearer_auth(clone_auth_token)
+                                    .send()
+                                    .await;
+                                match resultat {
+                                    Ok(response) => {
+                                        if response.status().is_success() {
+                                            let _ = clone_sender.send(
+                                                ApiMessage::VolumeCreationStatus(
+                                                    " Volume enregistré sur le serv !".to_string(),
+                                                ),
+                                            );
+                                        } else {
+                                            let _ = clone_sender.send(
+                                                ApiMessage::VolumeCreationStatus(
+                                                    " Refus serveur (API KO)".to_string(),
+                                                ),
+                                            );
+                                        }
+                                    }
+                                    Err(e) => {
+                                        let _ =
+                                            clone_sender.send(ApiMessage::VolumeCreationStatus(
+                                                format!(" Erreur Réseau : {}", e),
+                                            ));
+                                    }
+                                }
+                            });
+                        }
+                    }
+                }
+                ApiMessage::VolumeCreationStatus(texte) => {
+                    self.volume_status = texte.to_string();
                 }
             }
         }

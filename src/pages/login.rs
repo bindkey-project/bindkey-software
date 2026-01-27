@@ -31,8 +31,8 @@ pub fn show_login_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
                 app.login_status = "Veuillez remplir correctement tous les champs".to_string();
             } else {
                 app.login_status = "Connexion en cours...".to_string();
-                app.role_user = crate::protocol::Role::ADMIN;
-                app.current_page = crate::protocol::Page::Home;
+                //app.role_user = crate::protocol::Role::ADMIN;
+                //app.current_page = crate::protocol::Page::Home;
 
                 let clone_sender = app.sender.clone();
                 let clone_login_email = app.login_email.clone();
@@ -55,9 +55,12 @@ pub fn show_login_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
                                 match challenge {
                                     Ok(chall) => {
                                         let le_challenge = chall.auth_challenge;
+                                        let session_id = chall.session_id;
                                         println!("{}", le_challenge);
-                                        let _ = clone_sender
-                                            .send(ApiMessage::ReceivedChallenge(le_challenge));
+                                        let _ = clone_sender.send(ApiMessage::ReceivedChallenge(
+                                            le_challenge,
+                                            session_id,
+                                        ));
                                     }
                                     Err(_) => {
                                         let _ = clone_sender.send(ApiMessage::LoginError(
@@ -67,7 +70,7 @@ pub fn show_login_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
                                 }
                             } else {
                                 let _ = clone_sender.send(ApiMessage::LoginError(
-                                    "Identifiants invalides".to_string(),
+                                    format!("Identifiants invalides: {}", response.status()).to_string(),
                                 ));
                             }
                         }

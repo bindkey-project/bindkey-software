@@ -1,7 +1,8 @@
-use crate::protocol::{Command, ModifyPayload, RegisterPayload};
-use crate::usb_service::get_bindkey;
-use crate::{API_URL, ApiMessage, BindKeyApp, Role};
+use crate::protocol::{self};
+use crate::usb_service::send_command_bindkey;
+use crate::{ApiMessage, BindKeyApp, Role};
 use eframe::egui;
+use serialport::SerialPortType;
 use sha2::{Digest, Sha256};
 use validator::{self, ValidateEmail, ValidateLength};
 
@@ -50,89 +51,49 @@ pub fn show_enrollment_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
 
     ui.add_enabled_ui(formulaire_valide, |ui| {
         if ui.button("Validé").clicked() {
-            let resultat_usb = get_bindkey(app, ui, Command::StartEnrollment);
+            let bypass_usb = true;
+          app.enroll_status = if bypass_usb {
+        "🛠️ MODE SIMULATION : Bypass USB activé...".to_string()
+    } else {
+        "🔌 Recherche de la clé USB...".to_string()
+    };
 
-            match resultat_usb {
-                Ok(received_data) => {
-                    if let Ok(json_value) =
-                        serde_json::from_str::<serde_json::Value>(&received_data)
-                    {
-                        if json_value["status"] == "SUCCESS" {
-                            let bk_pk = json_value["public_key"]
-                                .as_str()
-                                .unwrap_or("Unknown PK")
-                                .to_string();
+    let clone_sender = app.sender.clone();
 
-                            let bk_uid = json_value["uid"]
-                                .as_str()
-                                .unwrap_or("Unknown Uid")
-                                .to_string();
+    tokio::spawn(async move {
+       let resultat_usb: Result<String, String>;
 
-                            let clone_sender = app.sender.clone();
-                            let ctx = ui.ctx().clone();
-                            let clone_firstname = app.enroll_firstname.clone();
-                            let clone_lastname = app.enroll_lastname.clone();
-                            let clone_email = app.enroll_email.clone();
-                            let hash_password = hash_password_with_salt(&app.enroll_password);
-                            let clone_user_role = app.enroll_role.clone();
-                            let clone_auth_token = app.auth_token.clone();
-                            let clone_bk_pk = bk_pk.clone();
-                            let clone_bk_uid = bk_uid.clone();
-                            println!("{:?}", clone_user_role);
-
-                            tokio::spawn(async move {
-                                let payload = RegisterPayload {
-                                    first_name: clone_firstname,
-                                    last_name: clone_lastname,
-                                    email: clone_email,
-                                    password: hash_password,
-                                    user_role: clone_user_role,
-                                    bindkey_status: crate::protocol::StatusBindkey::ACTIVE,
-                                    public_key: clone_bk_pk,
-                                    bindkey_uid: clone_bk_uid,
-                                };
-                                let client = reqwest::Client::new();
-                                let url = format!("{}/users", API_URL);
-                                let resultat = client
-                                    .post(&url)
-                                    .json(&payload)
-                                    .bearer_auth(clone_auth_token)
-                                    .send()
-                                    .await;
-
-                                match resultat {
-                                    Ok(response) => {
-                                        if response.status().is_success() {
-                                            let _ =
-                                                clone_sender.send(ApiMessage::EnrollmentSuccess(
-                                                    " Enrolé (API OK) !".to_string(),
-                                                ));
-                                        } else {
-                                            let _ = clone_sender.send(ApiMessage::EnrollmentError(
-                                                " Refus serveur (API KO)".to_string(),
-                                            ));
-                                        }
-                                    }
-                                    Err(e) => {
-                                        let _ = clone_sender.send(ApiMessage::EnrollmentError(
-                                            format!(" Erreur Réseau : {}", e),
-                                        ));
-                                    }
-                                }
-                                ctx.request_repaint();
-                            });
-                            app.enroll_password.clear();
-                        } else {
-                            app.enroll_status = " Erreur USB : Statut non SUCCESS".to_string();
-                        }
-                    } else {
-                        app.enroll_status = " Erreur USB : JSON invalide".to_string();
-                    }
-                }
-                Err(e) => {
-                    app.enroll_status = format!(" {}", e);
-                }
+        if bypass_usb {
+        println!(">> SIMULATION : On fait comme si la clé avait dit OUI");
+        resultat_usb = Ok(r#"{"status": "SUCCESS", "uid": "SIMULATED-BK-999", "public_key": "simulated-key-xyz"}"#
+        .to_string());
+    } else {
+        let mut port_name = String::new();
+        if let Ok(ports) = serialport::available_ports() {
+            for p in ports {
+                if let SerialPortType::UsbPort(_) = p.port_type {
+                    port_name = p.port_name;
+                    break;
+                };
             }
+        }
+
+        if !port_name.is_empty() {
+            resultat_usb = send_command_bindkey(&port_name, protocol::Command::StartEnrollment);
+        } else {
+            resultat_usb = Err("Aucune Bindkey détectée. Branchez-là !".to_string());
+        }
+    }
+
+    match resultat_usb {
+        Ok(data) => {
+            let _ = clone_sender.send(ApiMessage::EnrollmentUsbSuccess(data));
+        }
+        Err(e) => {
+            let _ = clone_sender.send(ApiMessage::EnrollmentError(format!("Erreur USB: {}", e)));
+        }
+    }
+    });
         };
     });
 
@@ -145,69 +106,50 @@ pub fn show_enrollment_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
 
     ui.add_enabled_ui(modif_valid, |ui| {
         if ui.button("Modifié").clicked() {
-            let resultat_usb = get_bindkey(app, ui, Command::Modify);
+             let bypass_usb = true;
+            app.enroll_status = if bypass_usb {
+        "🛠️ MODE SIMULATION : Bypass USB activé...".to_string()
+    } else {
+        "🔌 Recherche de la clé USB...".to_string()
+    };
 
-            match resultat_usb {
-                Ok(received_data) => {
-                    if let Ok(json_value) =
-                        serde_json::from_str::<serde_json::Value>(&received_data)
-                    {
-                        if json_value["status"] == "SUCCESS" {
-                            let clone_sender = app.sender.clone();
-                            let ctx = ui.ctx().clone();
-                            let clone_email = app.enroll_email.clone();
-                            let clone_user_role = app.enroll_role.clone();
-                            let clone_auth_token = app.auth_token.clone();
+    let clone_sender = app.sender.clone();
 
-                            tokio::spawn(async move {
-                                let payload = ModifyPayload {
-                                    email: clone_email,
-                                    user_role: clone_user_role,
-                                };
-                                let client = reqwest::Client::new();
-                                let url = format!("{}/users", API_URL);
-                                let resultat = client
-                                    .put(&url)
-                                    .json(&payload)
-                                    .bearer_auth(clone_auth_token)
-                                    .send()
-                                    .await;
+    tokio::spawn(async move {
+       let resultat_usb: Result<String, String>;
 
-                                match resultat {
-                                    Ok(response) => {
-                                        if response.status().is_success() {
-                                            let _ =
-                                                clone_sender.send(ApiMessage::EnrollmentSuccess(
-                                                    " Rôle de l'utilisateur modifié !".to_string(),
-                                                ));
-                                        } else {
-                                            let _ = clone_sender.send(ApiMessage::EnrollmentError(
-                                                " Refus serveur (API KO)".to_string(),
-                                            ));
-                                        }
-                                    }
-                                    Err(e) => {
-                                        let _ = clone_sender.send(ApiMessage::EnrollmentError(
-                                            format!(" Erreur Réseau : {}", e),
-                                        ));
-                                    }
-                                }
-                                ctx.request_repaint();
-                            });
-                            app.enroll_password.clear();
-                        } else {
-                            app.enroll_status = " Erreur USB : Statut non SUCCESS".to_string();
-                        }
-                    } else {
-                        app.enroll_status = " Erreur USB : JSON invalide".to_string();
-                    }
-                }
-                Err(e) => {
-                    app.enroll_status = format!(" {}", e);
-                }
+        if bypass_usb {
+        println!(">> SIMULATION : On fait comme si la clé avait dit OUI");
+        resultat_usb = Ok(r#"{"status": "SUCCESS", "uid": "SIMULATED-BK-999", "public_key": "simulated-key-xyz"}"#
+        .to_string());
+    } else {
+        let mut port_name = String::new();
+        if let Ok(ports) = serialport::available_ports() {
+            for p in ports {
+                if let SerialPortType::UsbPort(_) = p.port_type {
+                    port_name = p.port_name;
+                    break;
+                };
             }
         }
+
+        if !port_name.is_empty() {
+            resultat_usb = send_command_bindkey(&port_name, protocol::Command::Modify);
+        } else {
+            resultat_usb = Err("Aucune Bindkey détectée. Branchez-là !".to_string());
+        }
+    }
+
+    match resultat_usb {
+        Ok(data) => {
+            let _ = clone_sender.send(ApiMessage::ModificationUsbSuccess(data));
+        }
+        Err(e) => {
+            let _ = clone_sender.send(ApiMessage::EnrollmentError(format!("Erreur USB: {}", e)));
+        }
+    }
     });
+        };
 
     ui.vertical_centered(|ui| {
         ui.add_space(20.0);
@@ -215,6 +157,7 @@ pub fn show_enrollment_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
             ui.colored_label(egui::Color32::BLUE, &app.enroll_status);
         }
     });
+});
 }
 
 pub fn hash_password_with_salt(password: &str) -> String {

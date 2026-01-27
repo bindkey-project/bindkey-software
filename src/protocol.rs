@@ -48,7 +48,7 @@ pub struct LoginPayload {
 #[derive(Serialize, Deserialize, Debug)]
 
 pub struct VerifyPayload {
-    pub email: String,
+    pub session_id: String,
     pub signature: String,
 }
 
@@ -64,6 +64,7 @@ pub struct LoginSuccessResponse {
 
 pub struct ChallengeResponse {
     pub auth_challenge: String,
+    pub session_id: String,
 }
 
 #[derive(PartialEq, Debug)]
@@ -84,11 +85,15 @@ pub enum Role {
 
 pub enum ApiMessage {
     EnrollmentSuccess(String),
+    EnrollmentUsbSuccess(String),
+    ModificationUsbSuccess(String),
     LoginError(String),
     EnrollmentError(String),
-    ReceivedChallenge(String),
-    SignedChallenge(String),
+    ReceivedChallenge(String, String),
+    SignedChallenge(String, String),
     LoginSuccess(Role, String, String),
+    VolumeCreationSuccess(String),
+    VolumeCreationStatus(String),
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -104,13 +109,5 @@ pub struct VolumeCreatedInfo {
     pub device_name: String,
     pub volume_name: String,
     pub volume_size_gb: u32,
-}
-
-#[derive(Debug)]
-pub struct VolumeInfo {
-    pub name: String,
-    pub mount_point: String,
-    pub total_space: u64,
-    pub available_space: u64,
-    pub is_removable: bool,
+    pub encrypted_key: String,
 }
