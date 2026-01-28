@@ -1,4 +1,4 @@
-use crate::protocol::Command;
+use crate::share_protocol::Command;
 use serde_json::to_string;
 use std::io::{BufRead, BufReader, Write};
 use std::time::Duration;

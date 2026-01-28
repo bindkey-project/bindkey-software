@@ -1,4 +1,5 @@
 pub const API_URL: &str = "https://api.bindkey.local";
+use crate::share_protocol::{SuccessData, UsbResponse};
 use crate::usb_service::send_command_bindkey;
 use eframe::egui;
 use serialport::{SerialPortInfo, SerialPortType};
@@ -7,6 +8,7 @@ use std::sync::mpsc::{Receiver, Sender, channel};
 mod config;
 mod pages;
 mod protocol;
+mod share_protocol;
 mod usb_service;
 use crate::config::AppConfig;
 use crate::pages::enrollment::hash_password_with_salt;
@@ -32,7 +34,6 @@ struct BindKeyApp {
     #[validate(length(min = 14))]
     pub enroll_password: String,
     pub enroll_role: protocol::Role,
-    pub devices: Vec<SerialPortInfo>,
     pub device_name: String,
     pub device_size: String,
     pub device_available_space: u32,
@@ -63,7 +64,6 @@ impl BindKeyApp {
             enroll_email: String::new(),
             enroll_password: String::new(),
             enroll_role: Role::NONE,
-            devices: Vec::new(),
             device_name: String::new(),
             device_size: String::new(),
             device_available_space: 0,
@@ -90,18 +90,11 @@ impl eframe::App for BindKeyApp {
                     self.enroll_status = texte.to_string();
                 }
                 ApiMessage::EnrollmentUsbSuccess(data) => {
-                    if let Ok(json_value) = serde_json::from_str::<serde_json::Value>(&data) {
-                        if json_value["status"] == "SUCCESS" {
-                            let bk_pk = json_value["public_key"]
-                                .as_str()
-                                .unwrap_or("Unknown PK")
-                                .to_string();
-
-                            let bk_uid = json_value["uid"]
-                                .as_str()
-                                .unwrap_or("Unknown Uid")
-                                .to_string();
-
+                    match serde_json::from_str::<UsbResponse>(&data) {
+                        Ok(UsbResponse::Success(SuccessData::EnrollmentInfo {
+                            uid,
+                            public_key,
+                        })) => {
                             let clone_sender = self.sender.clone();
                             let clone_firstname = self.enroll_firstname.clone();
                             let clone_lastname = self.enroll_lastname.clone();
@@ -109,10 +102,9 @@ impl eframe::App for BindKeyApp {
                             let hash_password = hash_password_with_salt(&self.enroll_password);
                             let clone_user_role = self.enroll_role.clone();
                             let clone_auth_token = self.auth_token.clone();
-                            let clone_bk_pk = bk_pk.clone();
-                            let clone_bk_uid = bk_uid.clone();
+                            let clone_bk_pk = public_key;
+                            let clone_bk_uid = uid;
                             let clone_url = self.config.api_url.clone();
-                            println!("{:?}", clone_user_role);
 
                             tokio::spawn(async move {
                                 let payload = RegisterPayload {
@@ -155,16 +147,22 @@ impl eframe::App for BindKeyApp {
                                 }
                             });
                             self.enroll_password.clear();
-                        } else {
-                            self.enroll_status = " Erreur USB : Statut non SUCCESS".to_string();
                         }
-                    } else {
-                        self.enroll_status = " Erreur USB : JSON invalide".to_string();
-                    }
+                        Ok(UsbResponse::Error(msg)) => {
+                            self.enroll_status = format!(" Erreur Clé USB : {}", msg);
+                        }
+                        Ok(_) => {
+                            self.enroll_status =
+                                "Erreur Protocole : Données inattendues reçues".to_string();
+                        }
+                        Err(e) => {
+                            self.enroll_status = format!("Erreur lecture JSON : {}", e);
+                        }
+                    };
                 }
                 ApiMessage::ModificationUsbSuccess(data) => {
-                    if let Ok(json_value) = serde_json::from_str::<serde_json::Value>(&data) {
-                        if json_value["status"] == "SUCCESS" {
+                    match serde_json::from_str::<UsbResponse>(&data) {
+                        Ok(UsbResponse::Success(SuccessData::Ack)) => {
                             let clone_sender = self.sender.clone();
                             let clone_email = self.enroll_email.clone();
                             let clone_user_role = self.enroll_role.clone();
@@ -176,20 +174,19 @@ impl eframe::App for BindKeyApp {
                                     user_role: clone_user_role,
                                 };
                                 let client = reqwest::Client::new();
-                                let url = format!("{}/users", clone_url);
+                                let url = format!("{}/users/modify", clone_url);
                                 let resultat = client
-                                    .put(&url)
+                                    .post(&url)
                                     .json(&payload)
                                     .bearer_auth(clone_auth_token)
                                     .send()
                                     .await;
-
                                 match resultat {
                                     Ok(response) => {
                                         if response.status().is_success() {
                                             let _ =
                                                 clone_sender.send(ApiMessage::EnrollmentSuccess(
-                                                    " Rôle de l'utilisateur modifié !".to_string(),
+                                                    " Modifié (API OK) !".to_string(),
                                                 ));
                                         } else {
                                             let _ = clone_sender.send(ApiMessage::EnrollmentError(
@@ -204,13 +201,18 @@ impl eframe::App for BindKeyApp {
                                     }
                                 }
                             });
-                            self.enroll_password.clear();
-                        } else {
-                            self.enroll_status = " Erreur USB : Statut non SUCCESS".to_string();
                         }
-                    } else {
-                        self.enroll_status = " Erreur USB : JSON invalide".to_string();
-                    }
+                        Ok(UsbResponse::Error(msg)) => {
+                            self.enroll_status = format!(" Erreur Clé USB : {}", msg);
+                        }
+                        Ok(_) => {
+                            self.enroll_status =
+                                "Erreur Protocole : Données inattendues reçues".to_string();
+                        }
+                        Err(e) => {
+                            self.enroll_status = format!("Erreur lecture JSON : {}", e);
+                        }
+                    };
                 }
                 ApiMessage::LoginError(texte) => {
                     self.login_status = texte.to_string();
@@ -231,11 +233,10 @@ impl eframe::App for BindKeyApp {
                                 }
                             }
                         }
-
                         if !port_name.is_empty() {
                             match send_command_bindkey(
                                 &port_name,
-                                protocol::Command::SignChallenge(le_challenge),
+                                share_protocol::Command::SignChallenge(le_challenge),
                             ) {
                                 Ok(response) => {
                                     let _ = clone_sender
@@ -311,28 +312,26 @@ impl eframe::App for BindKeyApp {
                     self.current_page = Page::Home;
                 }
                 ApiMessage::VolumeCreationSuccess(data) => {
-                    if let Ok(json_value) = serde_json::from_str::<serde_json::Value>(&data) {
-                        if json_value["status"] == "SUCCESS" {
+                    match serde_json::from_str::<UsbResponse>(&data) {
+                        Ok(UsbResponse::Success(SuccessData::VolumeCreated { encrypted_key })) => {
                             let clone_sender = self.sender.clone();
                             let clone_auth_token = self.auth_token.clone();
                             let clone_volume_name = self.volume_created_name.clone();
                             let clone_volume_size = self.volume_created_size.clone();
                             let clone_device_name = self.device_name.clone();
                             let clone_url = self.config.api_url.clone();
-                            let encrypted_key = json_value["encrypted_key"]
-                                .as_str()
-                                .unwrap_or("Unknown volume key")
-                                .to_string();
+                            let clone_encrypted_key = encrypted_key;
                             tokio::spawn(async move {
                                 let payload = VolumeCreatedInfo {
                                     device_name: clone_device_name,
                                     volume_name: clone_volume_name,
                                     volume_size_gb: clone_volume_size,
-                                    encrypted_key: encrypted_key,
+                                    encrypted_key: clone_encrypted_key,
                                 };
                                 let client = reqwest::Client::new();
+                                let url = format!("{}/users/modify", clone_url);
                                 let resultat = client
-                                    .post(format!("{}/volumes", clone_url))
+                                    .post(&url)
                                     .json(&payload)
                                     .bearer_auth(clone_auth_token)
                                     .send()
@@ -342,7 +341,7 @@ impl eframe::App for BindKeyApp {
                                         if response.status().is_success() {
                                             let _ = clone_sender.send(
                                                 ApiMessage::VolumeCreationStatus(
-                                                    " Volume enregistré sur le serv !".to_string(),
+                                                    "Volume enregistré sur le serv !".to_string(),
                                                 ),
                                             );
                                         } else {
@@ -362,24 +361,44 @@ impl eframe::App for BindKeyApp {
                                 }
                             });
                         }
-                    }
+                        Ok(UsbResponse::Error(msg)) => {
+                            self.volume_status = format!(" Erreur Clé USB : {}", msg);
+                        }
+                        Ok(_) => {
+                            self.volume_status =
+                                "Erreur Protocole : Données inattendues reçues".to_string();
+                        }
+                        Err(e) => {
+                            self.volume_status = format!("Erreur lecture JSON : {}", e);
+                        }
+                    };
                 }
                 ApiMessage::VolumeCreationStatus(texte) => {
                     self.volume_status = texte.to_string();
                 }
                 ApiMessage::VolumeInfoReceived(data) => {
-                    if let Ok(json) = serde_json::from_str::<serde_json::Value>(&data) {
-                        if json["status"] == "SUCCESS" {
-                            self.device_name =
-                                json["device_name"].as_str().unwrap_or("?").to_string();
-                            self.device_size =
-                                json["device_size"].as_str().unwrap_or("?").to_string();
-                            if let Some(s) = json["device_available_size"].as_str() {
-                                self.device_available_space = s.parse().unwrap_or(0);
-                            }
+                    match serde_json::from_str::<UsbResponse>(&data) {
+                        Ok(UsbResponse::Success(SuccessData::VolumeInfo {
+                            device_name,
+                            device_size,
+                            device_available_size,
+                        })) => {
+                            self.device_name = device_name;
+                            self.device_size = device_size;
+                            self.device_available_space = device_available_size;
                             self.volume_status = "Disque analysé avec succès.".to_string();
                         }
-                    }
+                        Ok(UsbResponse::Error(msg)) => {
+                            self.volume_status = format!(" Erreur Clé USB : {}", msg);
+                        }
+                        Ok(_) => {
+                            self.volume_status =
+                                "Erreur Protocole : Données inattendues reçues".to_string();
+                        }
+                        Err(e) => {
+                            self.volume_status = format!("Erreur lecture JSON : {}", e);
+                        }
+                    };
                 }
             }
         }

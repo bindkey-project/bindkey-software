@@ -1,8 +1,5 @@
-use crate::{
-    BindKeyApp,
-    protocol::{self, ApiMessage, VolumeCreationPayload},
-    usb_service::send_command_bindkey,
-};
+use crate::share_protocol::VolumeCreationPayload;
+use crate::{BindKeyApp, protocol::ApiMessage, share_protocol, usb_service::send_command_bindkey};
 use eframe::egui;
 use serialport::SerialPortType;
 
@@ -37,7 +34,7 @@ pub fn show_volumes_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
                     }
 
                     if !port_name.is_empty() {
-                        resultat_usb = send_command_bindkey(&port_name, protocol::Command::GetVolume);
+                        resultat_usb = send_command_bindkey(&port_name, share_protocol::Command::GetVolume);
                     } else {
                         resultat_usb = Err("Aucune Bindkey détectée".to_string());
                     }
@@ -149,7 +146,7 @@ pub fn show_volumes_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
                             };
                             resultat_usb = send_command_bindkey(
                                 &port_name,
-                                protocol::Command::CreateVolume(volumepayload),
+                                share_protocol::Command::CreateVolume(volumepayload),
                             );
                         } else {
                             resultat_usb = Err("Aucune Bindkey détectée".to_string());

@@ -3,15 +3,6 @@ use std::str;
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug)]
-pub enum Command {
-    StartEnrollment,
-    Modify,
-    SignChallenge(String),
-    CreateVolume(VolumeCreationPayload),
-    GetVolume,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
 pub struct RegisterPayload {
     pub first_name: String,
     pub last_name: String,
@@ -95,13 +86,6 @@ pub enum ApiMessage {
     VolumeCreationSuccess(String),
     VolumeCreationStatus(String),
     VolumeInfoReceived(String),
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-
-pub struct VolumeCreationPayload {
-    pub volume_name: String,
-    pub size_gb: u32,
 }
 
 #[derive(Serialize, Deserialize, Debug)]

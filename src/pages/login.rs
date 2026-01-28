@@ -1,5 +1,5 @@
 use crate::{
-    API_URL, ApiMessage, BindKeyApp, ChallengeResponse, LoginPayload,
+    ApiMessage, BindKeyApp, ChallengeResponse, LoginPayload,
     pages::enrollment::hash_password_with_salt,
 };
 use eframe::egui;

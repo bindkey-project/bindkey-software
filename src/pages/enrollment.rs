@@ -1,6 +1,5 @@
-use crate::protocol::{self};
 use crate::usb_service::send_command_bindkey;
-use crate::{ApiMessage, BindKeyApp, Role};
+use crate::{ApiMessage, BindKeyApp, Role, share_protocol};
 use eframe::egui;
 use serialport::SerialPortType;
 use sha2::{Digest, Sha256};
@@ -79,7 +78,7 @@ pub fn show_enrollment_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
         }
 
         if !port_name.is_empty() {
-            resultat_usb = send_command_bindkey(&port_name, protocol::Command::StartEnrollment);
+            resultat_usb = send_command_bindkey(&port_name, share_protocol::Command::StartEnrollment);
         } else {
             resultat_usb = Err("Aucune Bindkey détectée. Branchez-là !".to_string());
         }
@@ -134,7 +133,7 @@ pub fn show_enrollment_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
         }
 
         if !port_name.is_empty() {
-            resultat_usb = send_command_bindkey(&port_name, protocol::Command::Modify);
+            resultat_usb = send_command_bindkey(&port_name, share_protocol::Command::Modify);
         } else {
             resultat_usb = Err("Aucune Bindkey détectée. Branchez-là !".to_string());
         }
