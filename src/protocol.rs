@@ -63,7 +63,7 @@ pub enum Page {
     Login,
     Home,
     Enrollment,
-    Unlock, // Page pour les volumes (à faire plus tard)
+    Volume, // Page pour les volumes (à faire plus tard)
 }
 
 #[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
@@ -86,13 +86,48 @@ pub enum ApiMessage {
     VolumeCreationSuccess(String),
     VolumeCreationStatus(String),
     VolumeInfoReceived(String),
+    FetchUsers,
+    FetchUsersError(String),
+    UserFetched(Vec<User>),
+    LogOutSuccess,
+    LogOutError(String),
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 
 pub struct VolumeCreatedInfo {
-    pub device_name: String,
-    pub volume_name: String,
-    pub volume_size_gb: u32,
+    pub disk_id: String,
+    pub name: String,
+    pub size_bytes: u32,
     pub encrypted_key: String,
+    pub id: String,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+
+pub struct VolumeInitInfo {
+    pub name: String,
+    pub disk_id: String,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+
+pub struct VolumeInitResponse {
+    pub id: String,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+
+pub struct LogOut {
+    pub server_token: String,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+
+pub struct User {
+    pub id: i32,
+    pub first_name: String,
+    pub last_name: String,
+    pub email: String,
+    pub role: Role,
 }

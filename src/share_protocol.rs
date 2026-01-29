@@ -7,6 +7,7 @@ pub enum Command {
     SignChallenge(String),
     CreateVolume(VolumeCreationPayload),
     GetVolume,
+    FetchUsers,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -14,6 +15,7 @@ pub enum Command {
 pub struct VolumeCreationPayload {
     pub volume_name: String,
     pub size_gb: u32,
+    pub volume_id: String,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -38,14 +40,15 @@ pub enum SuccessData {
         signature: String,
     },
 
-    VolumeInfo {
+    DeviceInfo {
         device_name: String,
         device_size: String,
         device_available_size: u32,
     },
     VolumeCreated {
         encrypted_key: String,
+        volume_id: String,
     },
 
-    Ack,
+    Ack {},
 }

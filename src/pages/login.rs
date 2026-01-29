@@ -1,103 +1,113 @@
 use crate::{
     ApiMessage, BindKeyApp, ChallengeResponse, LoginPayload,
     pages::enrollment::hash_password_with_salt,
+    protocol::{Page, Role},
 };
 use eframe::egui;
 use validator::ValidateEmail;
 
 pub fn show_login_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
-    ui.vertical_centered(|ui| {
-        ui.add_space(50.0);
-        ui.heading("BindKey Secure Access");
-        ui.add_space(30.0);
+    let area_id = ui.make_persistent_id("login_area");
 
-        ui.label("Email :");
-        ui.add(
-            egui::TextEdit::singleline(&mut app.login_email).hint_text("jean.mattei@entreprise.fr"),
-        );
+    egui::Area::new(area_id)
+        .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
+        .movable(false)
+        .show(ui.ctx(), |ui| {
+            ui.set_max_width(400.0);
 
-        ui.add_space(10.0);
+            egui::Frame::none()
+                .fill(ui.visuals().window_fill())
+                .rounding(10.0)
+                .stroke(ui.visuals().window_stroke())
+                .inner_margin(30.0)
+                .show(ui, |ui| {
+                    ui.vertical_centered(|ui| {
+                        ui.heading("🔐 BindKey Access");
+                        ui.add_space(20.0);
+                    });
 
-        ui.label("Mot de passe :");
-        ui.add(egui::TextEdit::singleline(&mut app.login_password).password(true));
+                    ui.label("Email professionnel :");
+                    ui.add(
+                        egui::TextEdit::singleline(&mut app.login_email)
+                            .hint_text("jean.mattei@entreprise.fr")
+                            .min_size(egui::vec2(340.0, 32.0)),
+                    );
 
-        ui.add_space(30.0);
+                    ui.add_space(15.0);
 
-        if ui.button(" Se connecter avec BindKey").clicked() {
-            if app.login_email.is_empty()
-                || app.login_password.is_empty()
-                || !app.login_email.validate_email()
-            {
-                app.login_status = "Veuillez remplir correctement tous les champs".to_string();
-            } else {
-                app.login_status = "Connexion en cours...".to_string();
-                app.role_user = crate::protocol::Role::ADMIN;
-                app.current_page = crate::protocol::Page::Home;
+                    ui.label("Mot de passe :");
+                    ui.add(
+                        egui::TextEdit::singleline(&mut app.login_password)
+                            .password(true)
+                            .min_size(egui::vec2(340.0, 32.0)),
+                    );
 
-                let clone_sender = app.sender.clone();
-                let clone_login_email = app.login_email.clone();
-                let clone_login_password = hash_password_with_salt(&app.login_password);
-                let ctx = ui.ctx().clone();
-                let clone_url = app.config.api_url.clone();
-                println!("{}", clone_login_password);
+                    ui.add_space(30.0);
 
-                tokio::spawn(async move {
-                    let payload = LoginPayload {
-                        email: clone_login_email,
-                        password_hash: clone_login_password,
-                    };
-                    let client = reqwest::Client::new();
-                    let url = format!("{}/sessions/login", clone_url);
-                    let resultat = client.post(&url).json(&payload).send().await;
-                    match resultat {
-                        Ok(response) => {
-                            if response.status().is_success() {
-                                let challenge = response.json::<ChallengeResponse>().await;
-                                match challenge {
-                                    Ok(chall) => {
-                                        let le_challenge = chall.auth_challenge;
-                                        let session_id = chall.session_id;
-                                        println!("{}, {}", le_challenge, session_id);
-                                        let _ = clone_sender.send(ApiMessage::ReceivedChallenge(
-                                            le_challenge,
-                                            session_id,
-                                        ));
-                                    }
-                                    Err(e) => {
-                                        let _ = clone_sender.send(ApiMessage::LoginError(
-                                            format!(
-                                                "Erreur de communication avec le serveur: {}",
-                                                e
-                                            )
-                                            .to_string(),
-                                        ));
-                                    }
-                                }
+                    ui.vertical_centered(|ui| {
+                        let btn =
+                            egui::Button::new("Se connecter").min_size(egui::vec2(200.0, 40.0));
+
+                        if ui.add(btn).clicked() {
+                            handle_login(app, ui.ctx().clone());
+                        }
+
+                        ui.add_space(20.0);
+
+                        if !app.login_status.is_empty() {
+                            let color = if app.login_status.contains("cours") {
+                                egui::Color32::from_rgb(100, 200, 255)
                             } else {
-                                let _ = clone_sender.send(ApiMessage::LoginError(
-                                    format!("Identifiants invalides: {}", response.status())
-                                        .to_string(),
-                                ));
-                            }
+                                egui::Color32::from_rgb(255, 100, 100)
+                            };
+                            ui.colored_label(color, &app.login_status);
                         }
-                        Err(e) => {
-                            let _ = clone_sender.send(ApiMessage::LoginError(
-                                format!("Impossible de se connecter au serveur {}", e).to_string(),
-                            ));
-                        }
-                    }
-                    ctx.request_repaint();
+                    });
                 });
+        });
+}
+
+fn handle_login(app: &mut BindKeyApp, ctx: egui::Context) {
+    if app.login_email.is_empty() || !app.login_email.validate_email() {
+        app.login_status = " Email invalide".to_string();
+        return;
+    }
+    app.login_status = "⏳ Connexion...".to_string();
+
+    app.role_user = Role::ADMIN;
+    app.current_page = Page::Home;
+
+    let clone_sender = app.sender.clone();
+    let clone_email = app.login_email.clone();
+    let clone_pass = hash_password_with_salt(&app.login_password);
+    let clone_url = app.config.api_url.clone();
+
+    tokio::spawn(async move {
+        let payload = LoginPayload {
+            email: clone_email,
+            password_hash: clone_pass,
+        };
+        let client = reqwest::Client::new();
+        let url = format!("{}/sessions/login", clone_url);
+
+        match client.post(&url).json(&payload).send().await {
+            Ok(response) => {
+                if response.status().is_success() {
+                    if let Ok(chall) = response.json::<ChallengeResponse>().await {
+                        let _ = clone_sender.send(ApiMessage::ReceivedChallenge(
+                            chall.auth_challenge,
+                            chall.session_id,
+                        ));
+                    }
+                } else {
+                    let _ = clone_sender.send(ApiMessage::LoginError(" Refus Serveur".to_string()));
+                }
             }
-            app.login_password.clear();
+            Err(e) => {
+                let _ = clone_sender.send(ApiMessage::LoginError(e.to_string()));
+            }
         }
+        ctx.request_repaint();
     });
-    ui.vertical_centered(|ui| {
-        ui.add_space(20.0);
-        if app.login_status.contains("cours") {
-            ui.colored_label(egui::Color32::BLUE, &app.login_status);
-        } else {
-            ui.colored_label(egui::Color32::RED, &app.login_status);
-        }
-    });
+    app.login_password.clear();
 }
