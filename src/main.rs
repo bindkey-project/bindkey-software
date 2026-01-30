@@ -130,8 +130,8 @@ impl eframe::App for BindKeyApp {
                 }
             }
         }
-        self.usb_connected = found;
-        //self.usb_connected = true;
+        //self.usb_connected = found;
+        self.usb_connected = true;
 
         ctx.request_repaint_after(Duration::from_secs(1));
 

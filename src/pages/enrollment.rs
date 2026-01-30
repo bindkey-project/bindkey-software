@@ -265,9 +265,12 @@ pub fn show_enrollment_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
                             };
                             ui.colored_label(color, role_text);
 
-                            if ui.button("Supprimer").on_hover_text("Supprimer cet utilisateur").clicked() {
-                                println!("Demande de supp pour ID: {}", user.id);
+                            if user.email != app.login_email {
+                                if ui.button("Supprimer").on_hover_text("Supprimer cet utilisateur").clicked() {
+                               let _ = app.sender.send(ApiMessage::DeleteUser(user.id));
                             }
+                            }
+                            
                             ui.end_row();
                         }
                     }

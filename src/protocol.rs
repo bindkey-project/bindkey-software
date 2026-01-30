@@ -44,6 +44,9 @@ pub enum ApiMessage {
     UserFetched(Vec<User>),
     LogOutSuccess,
     LogOutError(String),
+    DeleteUserError(String),
+    DeleteUser(i32),
+    UserDeleted,
 }
 
 //--------------------------ÉNUMÉRATION (FIN)----------------------------

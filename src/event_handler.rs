@@ -1,3 +1,5 @@
+use std::result;
+
 use crate::usb_service::send_command_bindkey;
 use crate::{
     BindKeyApp,
@@ -364,6 +366,46 @@ pub fn handke_api_message(app: &mut BindKeyApp, message: ApiMessage) {
         }
         ApiMessage::FetchUsersError(e) => {
             app.enroll_status = format!("Erreur dans la mise à jour de la liste: {}", e);
+        }
+        ApiMessage::DeleteUser(user_id) => {
+            let clone_sender = app.sender.clone();
+            let url = format!("{}/users/{}", app.config.api_url, user_id);
+            let clone_auth_token = app.server_token.clone();
+
+            tokio::spawn(async move {
+                let client = reqwest::Client::new();
+                let resultat = client
+                    .delete(url)
+                    .bearer_auth(clone_auth_token)
+                    .send()
+                    .await;
+
+                match resultat {
+                    Ok(reponse) => {
+                        if reponse.status().is_success() {
+                            let _ = clone_sender.send(ApiMessage::UserDeleted);
+                        } else {
+                            let _ = clone_sender.send(ApiMessage::DeleteUserError(format!(
+                                "Erreur lors de la suppression: {}",
+                                reponse.status()
+                            )));
+                        }
+                    }
+                    Err(e) => {
+                        let _ = clone_sender.send(ApiMessage::DeleteUserError(format!(
+                            "Erreur serveur: {}",
+                            e
+                        )));
+                    }
+                }
+            });
+        }
+        ApiMessage::UserDeleted => {
+            app.enroll_status = "Utilisateur bien supprimé".to_string();
+            let _ = app.sender.send(ApiMessage::FetchUsers);
+        }
+        ApiMessage::DeleteUserError(e) => {
+            app.enroll_status = format!("Échec de la suppression: {}", e);
         }
         ApiMessage::LogOutSuccess => {
             app.current_page = Page::Login;
