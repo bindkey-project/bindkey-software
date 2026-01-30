@@ -3,6 +3,7 @@ use crate::share_protocol::VolumeCreationPayload;
 use crate::{BindKeyApp, protocol::ApiMessage, share_protocol, usb_service::send_command_bindkey};
 use eframe::egui;
 use serialport::SerialPortType;
+use sysinfo::Disks;
 
 pub fn show_volumes_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
     let usb_connected = app.usb_connected;
@@ -37,6 +38,13 @@ pub fn show_volumes_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
 
                     if ui.add(btn_scan).clicked() {
                         app.volume_status = "🔌 Recherche des infos du disque...".to_string();
+
+                        let disks = Disks::new_with_refreshed_list();
+                        for disk in disks.list() {
+                            if disk.is_removable() {
+                                println!("{:?}", disk.kind());
+                            }
+                        }
 
                         let clone_sender = app.sender.clone();
                         let bypass_usb = true;

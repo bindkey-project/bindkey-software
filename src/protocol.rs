@@ -1,21 +1,9 @@
+use serde::{Deserialize, Serialize};
 use std::str;
 
-use serde::{Deserialize, Serialize};
+//----------------------------------------- ÉNUMÉRATION---------------------------------
 
 #[derive(Serialize, Deserialize, Debug)]
-pub struct RegisterPayload {
-    pub first_name: String,
-    pub last_name: String,
-    pub email: String,
-    pub password: String,
-    pub user_role: Role,
-    pub bindkey_uid: String,
-    pub bindkey_status: StatusBindkey,
-    pub public_key: String,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-
 pub enum StatusBindkey {
     ACTIVE,
     RESET,
@@ -23,47 +11,12 @@ pub enum StatusBindkey {
     BROKEN,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
-pub struct ModifyPayload {
-    pub email: String,
-    pub user_role: Role,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-
-pub struct LoginPayload {
-    pub email: String,
-    pub password_hash: String,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-
-pub struct VerifyPayload {
-    pub session_id: String,
-    pub signature: String,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-
-pub struct LoginSuccessResponse {
-    pub local_token: String,
-    pub role: Role,
-    pub first_name: String,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-
-pub struct ChallengeResponse {
-    pub auth_challenge: String,
-    pub session_id: String,
-}
-
 #[derive(PartialEq, Debug)]
 pub enum Page {
     Login,
     Home,
     Enrollment,
-    Volume, // Page pour les volumes (à faire plus tard)
+    Volume,
 }
 
 #[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
@@ -93,8 +46,73 @@ pub enum ApiMessage {
     LogOutError(String),
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+//--------------------------ÉNUMÉRATION (FIN)----------------------------
 
+//--------------------------STRUCT LOGIN (DÉBUT)----------------------------
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct LoginPayload {
+    pub email: String,
+    pub password_hash: String,
+    pub bindkey_id: String,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct ChallengeResponse {
+    pub auth_challenge: String,
+    pub session_id: String,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct VerifyPayload {
+    pub session_id: String,
+    pub signature: String,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct LoginSuccessResponse {
+    pub server_token: String,
+    pub role: Role,
+    pub first_name: String,
+}
+
+//--------------------------STRUCT LOGIN (FIN)------------------------------
+
+//--------------------------STRUCT ENRÔLEMENT (DÉBUT)------------------------------
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct RegisterPayload {
+    pub first_name: String,
+    pub last_name: String,
+    pub email: String,
+    pub password: String,
+    pub user_role: Role,
+    pub bindkey_uid: String,
+    pub bindkey_status: StatusBindkey,
+    pub public_key: String,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct ModifyPayload {
+    pub email: String,
+    pub user_role: Role,
+}
+//--------------------------STRUCT ENRÔLEMENT (FIN)--------------------------------
+
+//--------------------------STRUCT VOLUME (DÉBUT)--------------------------------
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct VolumeInitInfo {
+    pub name: String,
+    pub disk_id: String,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct VolumeInitResponse {
+    pub id: String,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
 pub struct VolumeCreatedInfo {
     pub disk_id: String,
     pub name: String,
@@ -102,28 +120,14 @@ pub struct VolumeCreatedInfo {
     pub encrypted_key: String,
     pub id: String,
 }
+//--------------------------STRUCT VOLUME (FIN)--------------------------------
 
 #[derive(Serialize, Deserialize, Debug)]
-
-pub struct VolumeInitInfo {
-    pub name: String,
-    pub disk_id: String,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-
-pub struct VolumeInitResponse {
-    pub id: String,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-
 pub struct LogOut {
     pub server_token: String,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-
 pub struct User {
     pub id: i32,
     pub first_name: String,

@@ -199,7 +199,7 @@ pub fn handke_api_message(app: &mut BindKeyApp, message: ApiMessage) {
                                         Ok(response) => {
                                             let _ = clone_sender.send(ApiMessage::LoginSuccess(
                                                 response.role,
-                                                response.local_token,
+                                                response.server_token,
                                                 response.first_name,
                                             ));
                                         }

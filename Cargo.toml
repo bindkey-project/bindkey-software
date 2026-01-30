@@ -5,7 +5,7 @@ edition = "2024"
 
 [dependencies]
 # Interface Graphique (GUI)
-eframe = "0.29.1" # Contient egui. Vérifie la dernière version sur crates.io
+eframe = "0.29.1" # Contient egui. 
 egui = "0.29.1"
 
 # Communication Matérielle (Vers ESP32)

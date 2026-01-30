@@ -1,9 +1,12 @@
+use crate::usb_service::send_command_bindkey;
 use crate::{
     ApiMessage, BindKeyApp, ChallengeResponse, LoginPayload,
     pages::enrollment::hash_password_with_salt,
     protocol::{Page, Role},
+    share_protocol,
 };
 use eframe::egui;
+use serialport::SerialPortType;
 use validator::ValidateEmail;
 
 pub fn show_login_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
@@ -68,46 +71,108 @@ pub fn show_login_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
 }
 
 fn handle_login(app: &mut BindKeyApp, ctx: egui::Context) {
-    if app.login_email.is_empty() || !app.login_email.validate_email() {
-        app.login_status = " Email invalide".to_string();
-        return;
-    }
-    app.login_status = "⏳ Connexion...".to_string();
+    if app.login_email.is_empty()
+        || app.login_password.is_empty()
+        || !app.login_email.validate_email()
+    {
+        app.login_status = " Champs invalides".to_string();
+    } else {
+        if !app.usb_connected {
+            app.login_status = " Veuillez brancher votre BindKey".to_string();
+        } else {
+            app.login_status = " Lecture de la BindKey...".to_string();
 
-    app.role_user = Role::ADMIN;
-    app.current_page = Page::Home;
+            app.role_user = Role::ADMIN;
+            app.current_page = Page::Home;
+            let clone_sender = app.sender.clone();
+            let clone_email = app.login_email.clone();
+            let clone_pass = hash_password_with_salt(&app.login_password);
+            let clone_url = app.config.api_url.clone();
+            let bypass_usb = true;
 
-    let clone_sender = app.sender.clone();
-    let clone_email = app.login_email.clone();
-    let clone_pass = hash_password_with_salt(&app.login_password);
-    let clone_url = app.config.api_url.clone();
+            tokio::spawn(async move {
+                let bindkey_id_result: Result<String, String>;
 
-    tokio::spawn(async move {
-        let payload = LoginPayload {
-            email: clone_email,
-            password_hash: clone_pass,
-        };
-        let client = reqwest::Client::new();
-        let url = format!("{}/sessions/login", clone_url);
-
-        match client.post(&url).json(&payload).send().await {
-            Ok(response) => {
-                if response.status().is_success() {
-                    if let Ok(chall) = response.json::<ChallengeResponse>().await {
-                        let _ = clone_sender.send(ApiMessage::ReceivedChallenge(
-                            chall.auth_challenge,
-                            chall.session_id,
-                        ));
-                    }
+                if bypass_usb {
+                    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+                    bindkey_id_result = Ok("SIMULATED-BK-UID-999".to_string());
                 } else {
-                    let _ = clone_sender.send(ApiMessage::LoginError(" Refus Serveur".to_string()));
+                    let mut port_name = String::new();
+                    if let Ok(ports) = serialport::available_ports() {
+                        for p in ports {
+                            if let SerialPortType::UsbPort(_) = p.port_type {
+                                port_name = p.port_name;
+                                break;
+                            }
+                        }
+                    }
+
+                    if !port_name.is_empty() {
+                        let response =
+                            send_command_bindkey(&port_name, share_protocol::Command::GetInfo);
+
+                        match response {
+                            Ok(json_str) => {
+                                let v: serde_json::Value =
+                                    serde_json::from_str(&json_str).unwrap_or_default();
+                                if let Some(uid) = v["data"]["uid"].as_str() {
+                                    bindkey_id_result = Ok(uid.to_string());
+                                } else {
+                                    bindkey_id_result =
+                                        Err("Format JSON invalide (uid manquant)".to_string());
+                                }
+                            }
+                            Err(e) => bindkey_id_result = Err(e),
+                        }
+                    } else {
+                        bindkey_id_result = Err("Port introuvable".to_string());
+                    }
                 }
-            }
-            Err(e) => {
-                let _ = clone_sender.send(ApiMessage::LoginError(e.to_string()));
-            }
+
+                match bindkey_id_result {
+                    Ok(bk_id) => {
+                        let _ = clone_sender.send(ApiMessage::LoginError(
+                            "UID récupéré, envoi au serveur...".to_string(),
+                        ));
+
+                        let payload = LoginPayload {
+                            email: clone_email,
+                            password_hash: clone_pass,
+                            bindkey_id: bk_id,
+                        };
+
+                        let client = reqwest::Client::new();
+                        let url = format!("{}/sessions/login", clone_url);
+
+                        match client.post(&url).json(&payload).send().await {
+                            Ok(response) => {
+                                if response.status().is_success() {
+                                    if let Ok(chall) = response.json::<ChallengeResponse>().await {
+                                        let _ = clone_sender.send(ApiMessage::ReceivedChallenge(
+                                            chall.auth_challenge,
+                                            chall.session_id,
+                                        ));
+                                    }
+                                } else {
+                                    let _ = clone_sender.send(ApiMessage::LoginError(format!(
+                                        "Refus Serveur (Clé inconnue ?): {}",
+                                        response.status()
+                                    )));
+                                }
+                            }
+                            Err(e) => {
+                                let _ = clone_sender
+                                    .send(ApiMessage::LoginError(format!("Erreur Réseau: {}", e)));
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        let _ = clone_sender
+                            .send(ApiMessage::LoginError(format!(" Erreur BindKey : {}", e)));
+                    }
+                }
+            });
         }
-        ctx.request_repaint();
-    });
+    }
     app.login_password.clear();
 }

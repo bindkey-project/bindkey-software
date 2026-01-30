@@ -216,15 +216,63 @@ pub fn show_enrollment_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
 
             frame_style.show(ui, |ui| {
                 ui.set_width(ui.available_width());
-                ui.heading("Utilisateurs existant");
-                ui.add_space(15.0);
 
-                let btn = egui::Button::new("Refresh")
-                .min_size(egui::vec2(250.0, 45.0));
+                ui.horizontal(|ui| {
+                    ui.heading("Utilisateurs existant");
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if ui.button("Actualiser").clicked() {
+                            let _ = app.sender.send(ApiMessage::FetchUsers);
+                        }
+                    });
+            });
 
-                if ui.add(btn).clicked() {
-                    let _ = app.sender.send(ApiMessage::FetchUsers);
-                }
+            egui::ScrollArea::vertical()
+            .max_height(200.0)
+            .show(ui, |ui| {
+                egui::Grid::new("user_list_grid")
+                .striped(true)
+                .spacing([20.0, 10.0])
+                .min_col_width(100.0)
+                .show(ui, |ui|{
+                    ui.strong("Nom");
+                    ui.strong("Email");
+                    ui.strong("Rôle");
+                    ui.strong("Actions");
+                    ui.end_row();
+
+                    if app.users_list.is_empty() {
+                        ui.label("Aucun utilisateur chargé...");
+                        ui.label("-");
+                        ui.label("-");
+                        ui.label("-");
+                        ui.end_row();
+                    }else {
+                        for (index, user) in app.users_list.iter().enumerate() {
+                            ui.label(format!("{} {}", user.first_name, user.last_name));
+                            ui.label(&user.email);
+
+                            let color = match user.role {
+                                Role::ENROLLEUR => egui::Color32::BLUE,
+                                Role::ADMIN => egui::Color32::RED,
+                                _ => egui::Color32::GRAY,
+
+                            };
+                            let role_text = match user.role {
+                                Role::ADMIN => "Administrateur",
+                                Role::ENROLLEUR => "Enrôleur",
+                                Role::USER => "Utilisateur",
+                                Role::NONE => "Aucun"
+                            };
+                            ui.colored_label(color, role_text);
+
+                            if ui.button("Supprimer").on_hover_text("Supprimer cet utilisateur").clicked() {
+                                println!("Demande de supp pour ID: {}", user.id);
+                            }
+                            ui.end_row();
+                        }
+                    }
+                });
+                });
             });
 
             ui.add_space(20.0);

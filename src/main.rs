@@ -146,10 +146,10 @@ impl eframe::App for BindKeyApp {
                 ui.horizontal(|ui| {
                     if self.usb_connected {
                         ui.colored_label(egui::Color32::GREEN, "●");
-                        ui.label("Bindkey Connectéé");
+                        ui.label("Bindkey Connectée");
                     } else {
                         ui.colored_label(egui::Color32::RED, "●");
-                        ui.label("Aucune clé détectéé");
+                        ui.label("Aucune clé détectée");
                     }
                 });
                 ui.add_space(20.0);

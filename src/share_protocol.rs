@@ -7,7 +7,7 @@ pub enum Command {
     SignChallenge(String),
     CreateVolume(VolumeCreationPayload),
     GetVolume,
-    FetchUsers,
+    GetInfo,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
