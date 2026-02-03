@@ -1,12 +1,12 @@
-use std::time::Duration;
-use serde_json::json;
 use crate::protocol::protocol::{
     ApiMessage, LoginSuccessResponse, ModifyPayload, Page, RegisterPayload, Role,
     StatusBindkey::ACTIVE, User, VolumeCreatedInfo,
 };
 use crate::protocol::share_protocol::{SuccessData, UsbResponse};
-use crate::usb_service::{ send_text_command};
+use crate::usb_service::send_text_command;
 use crate::{BindKeyApp, pages::enrollment::hash_password_with_salt};
+use serde_json::json;
+use std::time::Duration;
 pub fn handke_api_message(app: &mut BindKeyApp, message: ApiMessage) {
     match message {
         ApiMessage::EnrollmentSuccess(texte) => {
@@ -154,7 +154,9 @@ pub fn handke_api_message(app: &mut BindKeyApp, message: ApiMessage) {
                                             sig.clone(),
                                             session_id,
                                         ));
-                                        let _ = clone_sender.send(ApiMessage::LoginError("Scannez votre doigt".to_string()));
+                                        let _ = clone_sender.send(ApiMessage::LoginError(
+                                            "Scannez votre doigt".to_string(),
+                                        ));
                                     } else {
                                         let _ = clone_sender.send(ApiMessage::LoginError(
                                             "La clé a répondu mais sans SIG".to_string(),
