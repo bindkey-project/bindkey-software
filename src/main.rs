@@ -1,20 +1,15 @@
 use eframe::egui;
 use serialport::SerialPortType;
-
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::time::{Duration, Instant};
 mod config;
 mod pages;
 mod protocol;
-use crate::protocol::protocol::{ApiMessage, LogOut, Page, Role, User};
+use crate::protocol::protocol::{ApiMessage, LogOut, Page, Role, User, create_secure_client};
 mod usb_service;
 use crate::config::AppConfig;
 use validator::Validate;
 mod event_handler;
-
-// device port_name : "/dev/ttyACM0", device port_type :
-//UsbPort(UsbPortInfo { vid: 0x1a86, pid: 0x55d3, serial_number: Some("5A47013078"), manufacturer: Some("1a86"), product: Some("USB Single Serial") })
-//Info quand bindkey branchée
 
 #[derive(Validate)]
 struct BindKeyApp {
@@ -49,6 +44,7 @@ struct BindKeyApp {
     pub last_usb_check: Instant,
     pub users_list: Vec<User>,
     pub current_port_name: String,
+    pub api_client: reqwest::Client,
 }
 
 impl BindKeyApp {
@@ -81,6 +77,14 @@ impl BindKeyApp {
 
         cc.egui_ctx.set_visuals(visuals);
 
+        let client = match create_secure_client() {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!("ERREUR FATALE CLIENT HTTP : {}", e);
+                reqwest::Client::new() 
+            }
+        };
+
         let (tx, rx) = channel();
         let config = AppConfig::load();
         BindKeyApp {
@@ -112,6 +116,7 @@ impl BindKeyApp {
             last_usb_check: Instant::now(),
             users_list: Vec::new(),
             current_port_name: String::new(),
+            api_client: client,
         }
     }
 }
@@ -124,15 +129,13 @@ impl eframe::App for BindKeyApp {
 
         let mut found_port = String::new();
 
-        // 1. On cherche le port qui correspond à tes VID/PID
         if let Ok(ports) = serialport::available_ports() {
             for p in ports {
                 match p.port_type {
                     SerialPortType::UsbPort(info) => {
-                        // VID/PID de la BindKey (CH340: 0x1A86 / 0x55D3)
                         if info.vid == 0x10c4 && info.pid == 0xea60 {
                             found_port = p.port_name;
-                            break; // Trouvé ! On sort de la boucle
+                            break; 
                         }
                     }
                     _ => {}
@@ -140,8 +143,6 @@ impl eframe::App for BindKeyApp {
             }
         }
 
-        // 2. Mise à jour directe de l'état
-        // Si found_port n'est pas vide, c'est qu'on est connecté
         self.usb_connected = !found_port.is_empty();
         self.current_port_name = found_port;
 
@@ -186,13 +187,14 @@ impl eframe::App for BindKeyApp {
                     let url = self.config.api_url.clone();
                     let clone_auth_token = self.server_token.clone();
                     let clone_sender = self.sender.clone();
+                    let clone_api_client = self.api_client.clone();
 
                     tokio::spawn(async move {
                         let payload = LogOut {
                             server_token: clone_auth_token.clone(),
                         };
-                        let client = reqwest::Client::new();
-                        let result = client
+                        
+                        let result = clone_api_client
                             .post(format!("{}/sessions/logout", url))
                             .json(&payload)
                             .bearer_auth(clone_auth_token)

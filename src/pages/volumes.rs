@@ -225,16 +225,16 @@ pub fn show_volumes_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
                             let clone_url = app.config.api_url.clone();
                             let clone_auth_token = app.server_token.clone();
                             let clone_port_name = app.current_port_name.clone();
+                            let clone_api_client = app.api_client.clone();
 
                             tokio::spawn(async move {
-                                let client = reqwest::Client::new();
                                 let url = format!("{}/verify_volume", clone_url);
                                 let payload = VolumeInitInfo {
                                     name: clone_volume_name.clone(),
                                     disk_id: clone_device_name,
                                 };
 
-                                let resultat = client
+                                let resultat = clone_api_client
                                     .post(url)
                                     .json(&payload)
                                     .bearer_auth(clone_auth_token)

@@ -25,6 +25,7 @@ pub fn handke_api_message(app: &mut BindKeyApp, message: ApiMessage) {
                     let clone_bk_pk = public_key;
                     let clone_bk_uid = uid;
                     let clone_url = app.config.api_url.clone();
+                    let clone_api_client = app.api_client.clone();
 
                     tokio::spawn(async move {
                         let payload = RegisterPayload {
@@ -38,9 +39,8 @@ pub fn handke_api_message(app: &mut BindKeyApp, message: ApiMessage) {
                             bindkey_uid: clone_bk_uid,
                         };
                         println!("{:?}", payload);
-                        let client = reqwest::Client::new();
                         let url = format!("{}/auth/register", clone_url);
-                        let resultat = client
+                        let resultat = clone_api_client
                             .post(&url)
                             .json(&payload)
                             .bearer_auth(clone_auth_token)
@@ -84,14 +84,15 @@ pub fn handke_api_message(app: &mut BindKeyApp, message: ApiMessage) {
                 let clone_user_role = app.enroll_role.clone();
                 let clone_auth_token = app.server_token.clone();
                 let clone_url = app.config.api_url.clone();
+                let clone_api_client = app.api_client.clone();
+
                 tokio::spawn(async move {
                     let payload = ModifyPayload {
                         email: clone_email,
                         user_role: clone_user_role,
                     };
-                    let client = reqwest::Client::new();
                     let url = format!("{}/users/modify", clone_url);
-                    let resultat = client
+                    let resultat = clone_api_client
                         .post(&url)
                         .json(&payload)
                         .bearer_auth(clone_auth_token)
@@ -191,14 +192,14 @@ pub fn handke_api_message(app: &mut BindKeyApp, message: ApiMessage) {
             let clone_signature = signature.clone();
             let clone_sender = app.sender.clone();
             let clone_url = app.config.api_url.clone();
+            let clone_api_client = app.api_client.clone();
 
             tokio::spawn(async move {
                 let payload = json!({
                     session_id: clone_session_id,
                     signature: clone_signature,
                 });
-                let client = reqwest::Client::new();
-                let resultat = client
+                let resultat = clone_api_client
                     .post(format!("{}/sessions/verify", clone_url))
                     .json(&payload)
                     .send()
@@ -255,6 +256,8 @@ pub fn handke_api_message(app: &mut BindKeyApp, message: ApiMessage) {
                     let clone_volume_size = app.volume_created_size;
                     let clone_device_name = app.device_name.clone();
                     let clone_url = app.config.api_url.clone();
+                    let clone_api_client = app.api_client.clone();
+
                     tokio::spawn(async move {
                         let payload = VolumeCreatedInfo {
                             disk_id: clone_device_name,
@@ -263,9 +266,8 @@ pub fn handke_api_message(app: &mut BindKeyApp, message: ApiMessage) {
                             encrypted_key: encrypted_key,
                             id: volume_id,
                         };
-                        let client = reqwest::Client::new();
                         let url = format!("{}/volumes", clone_url);
-                        let resultat = client
+                        let resultat = clone_api_client
                             .post(&url)
                             .json(&payload)
                             .bearer_auth(clone_auth_token)
@@ -326,11 +328,11 @@ pub fn handke_api_message(app: &mut BindKeyApp, message: ApiMessage) {
             let clone_sender = app.sender.clone();
             let url = app.config.api_url.clone();
             let clone_auth_token = app.server_token.clone();
+            let clone_api_client = app.api_client.clone();
 
             tokio::spawn(async move {
-                let client = reqwest::Client::new();
                 let url = format!("{}/users", url);
-                let resultat = client.get(url).bearer_auth(clone_auth_token).send().await;
+                let resultat = clone_api_client.get(url).bearer_auth(clone_auth_token).send().await;
 
                 match resultat {
                     Ok(response) => {
@@ -369,10 +371,10 @@ pub fn handke_api_message(app: &mut BindKeyApp, message: ApiMessage) {
             let clone_sender = app.sender.clone();
             let url = format!("{}/users/{}", app.config.api_url, user_id);
             let clone_auth_token = app.server_token.clone();
+            let clone_api_client = app.api_client.clone();
 
             tokio::spawn(async move {
-                let client = reqwest::Client::new();
-                let resultat = client
+                let resultat = clone_api_client
                     .delete(url)
                     .bearer_auth(clone_auth_token)
                     .send()

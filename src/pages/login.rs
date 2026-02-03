@@ -95,9 +95,9 @@ fn handle_admin_login(app: &mut BindKeyApp) {
     let clone_email = app.login_email.clone();
     let clone_pass = hash_password_with_salt(&app.login_password);
     let clone_url = app.config.api_url.clone();
+    let clone_api_client = app.api_client.clone();
 
     tokio::spawn(async move {
-        let client = reqwest::Client::new();
 
         let url = format!("{}/sessions/test", clone_url);
         let payload = json!({
@@ -105,7 +105,7 @@ fn handle_admin_login(app: &mut BindKeyApp) {
             "password": clone_pass
         });
 
-        match client.post(&url).json(&payload).send().await {
+        match clone_api_client.post(&url).json(&payload).send().await {
             Ok(response) => {
                 if response.status().is_success() {
                     if let Ok(data) = response.json::<LoginSuccessResponse>().await {
@@ -155,6 +155,7 @@ fn handle_login(app: &mut BindKeyApp, ctx: egui::Context) {
     let clone_pass = hash_password_with_salt(&app.login_password);
     let clone_url = app.config.api_url.clone();
     let clone_port_name = app.current_port_name.clone();
+    let clone_api_client = app.api_client.clone();
     let bypass_usb = false;
 
     tokio::spawn(async move {
@@ -213,10 +214,9 @@ fn handle_login(app: &mut BindKeyApp, ctx: egui::Context) {
             "bindkey_id": bindkey_uid,
         });
 
-        let client = reqwest::Client::new();
         let url = format!("{}/sessions/login", clone_url);
 
-        match client.post(&url).json(&payload).send().await {
+        match clone_api_client.post(&url).json(&payload).send().await {
             Ok(response) => {
                 if response.status().is_success() {
                     if let Ok(chall) = response.json::<ChallengeResponse>().await {
