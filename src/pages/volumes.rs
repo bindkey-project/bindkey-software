@@ -1,9 +1,8 @@
-use crate::protocol::{VolumeInitInfo, VolumeInitResponse};
-use crate::share_protocol::VolumeCreationPayload;
-use crate::{BindKeyApp, protocol::ApiMessage, share_protocol, usb_service::send_command_bindkey};
+use std::time::Duration;
+
+use crate::protocol::protocol::{ApiMessage, VolumeInitInfo, VolumeInitResponse};
+use crate::protocol::share_protocol::{self, SuccessData, UsbResponse};
 use eframe::egui;
-use serialport::SerialPortType;
-use sysinfo::Disks;
 
 pub fn show_volumes_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
     let usb_connected = app.usb_connected;
@@ -39,47 +38,39 @@ pub fn show_volumes_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
                     if ui.add(btn_scan).clicked() {
                         app.volume_status = "🔌 Recherche des infos du disque...".to_string();
 
-                        let disks = Disks::new_with_refreshed_list();
-                        for disk in disks.list() {
-                            if disk.is_removable() {
-                                println!("{:?}", disk.kind());
-                            }
-                        }
-
                         let clone_sender = app.sender.clone();
+                        let clone_port_name = app.current_port_name.clone();
                         let bypass_usb = true;
 
                         tokio::spawn(async move {
-                            let resultat_usb: Result<String, String>;
+                            let resultat_usb: Result<UsbResponse, String>;
 
                             if bypass_usb {
                                 println!(">> SIMULATION SCAN DISQUE");
                                 tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-                                resultat_usb = Ok(r#"{
-                                "status": "SUCCESS",
-                                "data": {
-                                    "device_name": "Clé USB de Willy",
-                                    "device_size": "64",
-                                    "device_available_size": 45
-                                }
-                            }"#
-                                .to_string());
+                                resultat_usb = Ok(UsbResponse::Success(SuccessData::DeviceInfo {
+                                    device_name: "Clé USB de Willy".to_string(),
+                                    device_size: 64,
+                                    device_available_size: 45,
+                                    mount_id: 2,
+                                }));
                             } else {
-                                let mut port_name = String::new();
-                                if let Ok(ports) = serialport::available_ports() {
-                                    for p in ports {
-                                        if let SerialPortType::UsbPort(_) = p.port_type {
-                                            port_name = p.port_name;
-                                            break;
+                                if !clone_port_name.is_empty() {
+                                    match serialport::new(&clone_port_name, 115200)
+                                        .timeout(Duration::from_secs(2))
+                                        .open()
+                                    {
+                                        Ok(mut port) => {
+                                            resultat_usb = send_command(
+                                                &mut port,
+                                                share_protocol::Command::GetVolume,
+                                            );
+                                        }
+                                        Err(e) => {
+                                            resultat_usb =
+                                                Err(format!("Erreur d'ouvertur port: {}", e));
                                         }
                                     }
-                                }
-
-                                if !port_name.is_empty() {
-                                    resultat_usb = send_command_bindkey(
-                                        &port_name,
-                                        share_protocol::Command::GetVolume,
-                                    );
                                 } else {
                                     resultat_usb = Err("Aucune Bindkey détectée".to_string());
                                 }
@@ -205,8 +196,10 @@ pub fn show_volumes_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
                             let clone_volume_name = app.volume_created_name.clone();
                             let clone_volume_size = app.volume_created_size;
                             let clone_device_name = app.device_name.clone();
+                            let clone_mount_id = app.mount_id;
                             let clone_url = app.config.api_url.clone();
                             let clone_auth_token = app.server_token.clone();
+                            let clone_port_name = app.current_port_name.clone();
 
                             tokio::spawn(async move {
                                 let client = reqwest::Client::new();
@@ -228,14 +221,20 @@ pub fn show_volumes_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
                                         if let Ok(data) =
                                             response.json::<VolumeInitResponse>().await
                                         {
-                                            let serveur_volume_id = data.id;
-                                            let _ = clone_sender.send(
-                                                ApiMessage::VolumeCreationStatus(
-                                                    " Serveur OK. Écriture USB...".to_string(),
-                                                ),
+
+                                            if data.exists {
+                                                let _ = clone_sender.send(ApiMessage::VolumeCreationStatus(format!("Erreur le vomue '{}' existe déjà", clone_volume_name)));
+                                                return;
+                                            }
+
+
+                                            let serveur_volume_id = data.volume_id;
+
+                                                let _ = clone_sender.send(
+                                                ApiMessage::VolumeCreationStatus("Nom validé par le serveur. Écriture sur la clé".to_string())
                                             );
 
-                                            let resultat_usb: Result<String, String>;
+                                            let resultat_usb: Result<UsbResponse, String>;
 
                                             if bypass_usb {
                                                 println!(
@@ -246,38 +245,36 @@ pub fn show_volumes_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
                                                     2,
                                                 ))
                                                 .await;
-                                                resultat_usb = Ok(r#"{
-                                                    "status": "SUCCESS",
-                                                    "data": {
-                                                        "encrypted_key": "SIMULATED-Key-999"
-                                                    }
-                                                }"#
-                                                .to_string());
+                                                resultat_usb = Ok(UsbResponse::Success(
+                                                    SuccessData::VolumeCreated {
+                                                        encrypted_key: "SIMULATED-KEY-XYZ-999"
+                                                            .to_string(),
+                                                        volume_id: serveur_volume_id.clone(),
+                                                    },
+                                                ));
                                             } else {
-                                                let mut port_name = String::new();
-                                                if let Ok(ports) = serialport::available_ports() {
-                                                    for p in ports {
-                                                        if let SerialPortType::UsbPort(_) =
-                                                            p.port_type
-                                                        {
-                                                            port_name = p.port_name;
-                                                            break;
+                                                if !clone_port_name.is_empty() {
+                                                    match serialport::new(&clone_port_name, 115200)
+                                                    .timeout(Duration::from_secs(2))
+                                                    .open() {
+                                                        Ok(mut port) => {
+                                                            let volumepayload =
+                                                        share_protocol::VolumeCreationPayload {
+                                                            volume_name: clone_volume_name,
+                                                            size_gb: clone_volume_size,
+                                                            volume_id: serveur_volume_id,
+                                                            mount_id: clone_mount_id,
                                                         };
-                                                    }
-                                                }
 
-                                                if !port_name.is_empty() {
-                                                    let volumepayload = VolumeCreationPayload {
-                                                        volume_name: clone_volume_name,
-                                                        size_gb: clone_volume_size,
-                                                        volume_id: serveur_volume_id,
-                                                    };
-                                                    resultat_usb = send_command_bindkey(
-                                                        &port_name,
-                                                        share_protocol::Command::CreateVolume(
-                                                            volumepayload,
-                                                        ),
-                                                    );
+                                                        resultat_usb = send_command(
+                                                            &mut port,
+                                                            share_protocol::Command::CreateVolume(volumepayload)
+                                                        );
+                                                        },
+                                                        Err(e) => {
+                                                            resultat_usb = Err(format!("Impossible d'ouvrir le port: {}", e));
+                                                        }
+                                                    }
                                                 } else {
                                                     resultat_usb =
                                                         Err("Aucune Bindkey détectée".to_string());

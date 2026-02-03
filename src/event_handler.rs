@@ -1,26 +1,20 @@
-use std::result;
-
-use crate::usb_service::send_command_bindkey;
-use crate::{
-    BindKeyApp,
-    pages::enrollment::hash_password_with_salt,
-    share_protocol::{Command, SuccessData, UsbResponse},
+use std::time::Duration;
+use serde_json::json;
+use crate::protocol::protocol::{
+    ApiMessage, LoginSuccessResponse, ModifyPayload, Page, RegisterPayload, Role,
+    StatusBindkey::ACTIVE, User, VolumeCreatedInfo,
 };
-use serialport::SerialPortType;
-
-use crate::protocol::{
-    ApiMessage, LoginSuccessResponse, ModifyPayload, Page, RegisterPayload, Role, User,
-    VerifyPayload, VolumeCreatedInfo,
-};
-
+use crate::protocol::share_protocol::{SuccessData, UsbResponse};
+use crate::usb_service::{ send_text_command};
+use crate::{BindKeyApp, pages::enrollment::hash_password_with_salt};
 pub fn handke_api_message(app: &mut BindKeyApp, message: ApiMessage) {
     match message {
         ApiMessage::EnrollmentSuccess(texte) => {
             app.enroll_status = texte.to_string();
         }
         ApiMessage::EnrollmentUsbSuccess(data) => {
-            match serde_json::from_str::<UsbResponse>(&data) {
-                Ok(UsbResponse::Success(SuccessData::EnrollmentInfo { uid, public_key })) => {
+            match data {
+                UsbResponse::Success(SuccessData::EnrollmentInfo { uid, public_key }) => {
                     let clone_sender = app.sender.clone();
                     let clone_firstname = app.enroll_firstname.clone();
                     let clone_lastname = app.enroll_lastname.clone();
@@ -39,12 +33,13 @@ pub fn handke_api_message(app: &mut BindKeyApp, message: ApiMessage) {
                             email: clone_email,
                             password: hash_password,
                             user_role: clone_user_role,
-                            bindkey_status: crate::protocol::StatusBindkey::ACTIVE,
+                            bindkey_status: ACTIVE,
                             public_key: clone_bk_pk,
                             bindkey_uid: clone_bk_uid,
                         };
+                        println!("{:?}", payload);
                         let client = reqwest::Client::new();
-                        let url = format!("{}/users", clone_url);
+                        let url = format!("{}/auth/register", clone_url);
                         let resultat = client
                             .post(&url)
                             .json(&payload)
@@ -74,70 +69,62 @@ pub fn handke_api_message(app: &mut BindKeyApp, message: ApiMessage) {
                     });
                     app.enroll_password.clear();
                 }
-                Ok(UsbResponse::Error(msg)) => {
+                UsbResponse::Error(msg) => {
                     app.enroll_status = format!(" Erreur Clé USB : {}", msg);
                 }
-                Ok(_) => {
+                _ => {
                     app.enroll_status = "Erreur Protocole : Données inattendues reçues".to_string();
-                }
-                Err(e) => {
-                    app.enroll_status = format!("Erreur lecture JSON : {}", e);
                 }
             };
         }
-        ApiMessage::ModificationUsbSuccess(data) => {
-            match serde_json::from_str::<UsbResponse>(&data) {
-                Ok(UsbResponse::Success(SuccessData::Ack {})) => {
-                    let clone_sender = app.sender.clone();
-                    let clone_email = app.enroll_email.clone();
-                    let clone_user_role = app.enroll_role.clone();
-                    let clone_auth_token = app.server_token.clone();
-                    let clone_url = app.config.api_url.clone();
-                    tokio::spawn(async move {
-                        let payload = ModifyPayload {
-                            email: clone_email,
-                            user_role: clone_user_role,
-                        };
-                        let client = reqwest::Client::new();
-                        let url = format!("{}/users/modify", clone_url);
-                        let resultat = client
-                            .post(&url)
-                            .json(&payload)
-                            .bearer_auth(clone_auth_token)
-                            .send()
-                            .await;
-                        match resultat {
-                            Ok(response) => {
-                                if response.status().is_success() {
-                                    let _ = clone_sender.send(ApiMessage::EnrollmentSuccess(
-                                        " Modifié (API OK) !".to_string(),
-                                    ));
-                                } else {
-                                    let _ = clone_sender.send(ApiMessage::EnrollmentError(
-                                        " Refus serveur (API KO)".to_string(),
-                                    ));
-                                }
-                            }
-                            Err(e) => {
-                                let _ = clone_sender.send(ApiMessage::EnrollmentError(format!(
-                                    " Erreur Réseau : {}",
-                                    e
-                                )));
+        ApiMessage::ModificationUsbSuccess(data) => match data {
+            UsbResponse::Success(SuccessData::Ack) => {
+                let clone_sender = app.sender.clone();
+                let clone_email = app.enroll_email.clone();
+                let clone_user_role = app.enroll_role.clone();
+                let clone_auth_token = app.server_token.clone();
+                let clone_url = app.config.api_url.clone();
+                tokio::spawn(async move {
+                    let payload = ModifyPayload {
+                        email: clone_email,
+                        user_role: clone_user_role,
+                    };
+                    let client = reqwest::Client::new();
+                    let url = format!("{}/users/modify", clone_url);
+                    let resultat = client
+                        .post(&url)
+                        .json(&payload)
+                        .bearer_auth(clone_auth_token)
+                        .send()
+                        .await;
+                    match resultat {
+                        Ok(response) => {
+                            if response.status().is_success() {
+                                let _ = clone_sender.send(ApiMessage::EnrollmentSuccess(
+                                    " Modifié (API OK) !".to_string(),
+                                ));
+                            } else {
+                                let _ = clone_sender.send(ApiMessage::EnrollmentError(
+                                    " Refus serveur (API KO)".to_string(),
+                                ));
                             }
                         }
-                    });
-                }
-                Ok(UsbResponse::Error(msg)) => {
-                    app.enroll_status = format!(" Erreur Clé USB : {}", msg);
-                }
-                Ok(_) => {
-                    app.enroll_status = "Erreur Protocole : Données inattendues reçues".to_string();
-                }
-                Err(e) => {
-                    app.enroll_status = format!("Erreur lecture JSON : {}", e);
-                }
-            };
-        }
+                        Err(e) => {
+                            let _ = clone_sender.send(ApiMessage::EnrollmentError(format!(
+                                " Erreur Réseau : {}",
+                                e
+                            )));
+                        }
+                    }
+                });
+            }
+            UsbResponse::Error(msg) => {
+                app.enroll_status = format!(" Erreur Clé USB : {}", msg);
+            }
+            _ => {
+                app.enroll_status = "Erreur Protocole : Données inattendues reçues".to_string();
+            }
+        },
         ApiMessage::LoginError(texte) => {
             app.login_status = texte.to_string();
         }
@@ -147,24 +134,46 @@ pub fn handke_api_message(app: &mut BindKeyApp, message: ApiMessage) {
             app.login_status =
                 "Challenge reçue, communication avec la bindkey en cours".to_string();
             let clone_sender = app.sender.clone();
+            let clone_port_name = app.current_port_name.clone();
             tokio::spawn(async move {
-                let mut port_name = String::new();
-                if let Ok(ports) = serialport::available_ports() {
-                    for p in ports {
-                        if let SerialPortType::UsbPort(_) = p.port_type {
-                            port_name = p.port_name;
-                            break;
+                if !clone_port_name.is_empty() {
+                    match serialport::new(&clone_port_name, 115200)
+                        .timeout(Duration::from_secs(2))
+                        .open()
+                    {
+                        Ok(mut port) => {
+                            let _ = port.write_data_terminal_ready(true);
+                            std::thread::sleep(Duration::from_millis(100));
+
+                            let cmd = format!("challenge={}", le_challenge);
+
+                            match send_text_command(&mut *port, &cmd) {
+                                Ok(map) => {
+                                    if let Some(sig) = map.get("SIG") {
+                                        let _ = clone_sender.send(ApiMessage::SignedChallenge(
+                                            sig.clone(),
+                                            session_id,
+                                        ));
+                                        let _ = clone_sender.send(ApiMessage::LoginError("Scannez votre doigt".to_string()));
+                                    } else {
+                                        let _ = clone_sender.send(ApiMessage::LoginError(
+                                            "La clé a répondu mais sans SIG".to_string(),
+                                        ));
+                                    }
+                                }
+                                Err(e) => {
+                                    let _ = clone_sender.send(ApiMessage::LoginError(format!(
+                                        "Erreur Com USB: {}",
+                                        e
+                                    )));
+                                }
+                            }
                         }
-                    }
-                }
-                if !port_name.is_empty() {
-                    match send_command_bindkey(&port_name, Command::SignChallenge(le_challenge)) {
-                        Ok(response) => {
-                            let _ = clone_sender
-                                .send(ApiMessage::SignedChallenge(response, session_id));
-                        }
-                        Err(message_erreur) => {
-                            let _ = clone_sender.send(ApiMessage::LoginError(message_erreur));
+                        Err(e) => {
+                            let _ = clone_sender.send(ApiMessage::LoginError(format!(
+                                "Impossible d'ouvirir le port: {}",
+                                e
+                            )));
                         }
                     }
                 } else {
@@ -174,63 +183,58 @@ pub fn handke_api_message(app: &mut BindKeyApp, message: ApiMessage) {
             });
         }
         ApiMessage::SignedChallenge(signature, session_id) => {
-            match serde_json::from_str::<UsbResponse>(&signature) {
-                Ok(UsbResponse::Success(SuccessData::Signature { signature })) => {
-                    app.login_status =
-                        "Signature générée. Vérification finale auprès du serveur".to_string();
-                    let clone_session_id = session_id.clone();
-                    let clone_signature = signature.clone();
-                    let clone_sender = app.sender.clone();
-                    let clone_url = app.config.api_url.clone();
+            app.login_status =
+                "Signature générée. Vérification finale auprès du serveur".to_string();
+            let clone_session_id = session_id.clone();
+            let clone_signature = signature.clone();
+            let clone_sender = app.sender.clone();
+            let clone_url = app.config.api_url.clone();
 
-                    tokio::spawn(async move {
-                        let payload = VerifyPayload {
-                            session_id: clone_session_id,
-                            signature: clone_signature,
-                        };
-                        let client = reqwest::Client::new();
-                        let resultat = client
-                            .post(format!("{}/sessions/verify", clone_url))
-                            .json(&payload)
-                            .send()
-                            .await;
-                        match resultat {
-                            Ok(response) => {
-                                if response.status().is_success() {
-                                    match response.json::<LoginSuccessResponse>().await {
-                                        Ok(response) => {
-                                            let _ = clone_sender.send(ApiMessage::LoginSuccess(
-                                                response.role,
-                                                response.server_token,
-                                                response.first_name,
-                                            ));
-                                        }
-                                        Err(e) => {
-                                            let _ = clone_sender
-                                                .send(ApiMessage::LoginError(e.to_string()));
-                                        }
-                                    }
-                                } else {
-                                    let _ = clone_sender.send(ApiMessage::LoginError(
-                                        "Signature refusée par le serveur".to_string(),
+            tokio::spawn(async move {
+                let payload = json!({
+                    session_id: clone_session_id,
+                    signature: clone_signature,
+                });
+                let client = reqwest::Client::new();
+                let resultat = client
+                    .post(format!("{}/sessions/verify", clone_url))
+                    .json(&payload)
+                    .send()
+                    .await;
+                match resultat {
+                    Ok(response) => {
+                        if response.status().is_success() {
+                            match response.json::<LoginSuccessResponse>().await {
+                                Ok(response) => {
+                                    let _ = clone_sender.send(ApiMessage::LoginSuccess(
+                                        response.role,
+                                        response.server_token,
+                                        response.first_name,
+                                        response.local_token,
                                     ));
                                 }
+                                Err(e) => {
+                                    let _ =
+                                        clone_sender.send(ApiMessage::LoginError(e.to_string()));
+                                }
                             }
-                            Err(error) => {
-                                let _ =
-                                    clone_sender.send(ApiMessage::LoginError(error.to_string()));
-                            }
+                        } else {
+                            let _ = clone_sender.send(ApiMessage::LoginError(
+                                "Signature refusée par le serveur".to_string(),
+                            ));
                         }
-                    });
+                    }
+                    Err(error) => {
+                        let _ = clone_sender.send(ApiMessage::LoginError(error.to_string()));
+                    }
                 }
-                Ok(UsbResponse::Error(msg)) => app.login_status = format!("Erreur Clé : {}", msg),
-                _ => app.login_status = "Erreur : La clé n'a pas renvoyé de signature".to_string(),
-            }
+            });
         }
-        ApiMessage::LoginSuccess(role, token, first_name) => {
+        ApiMessage::LoginSuccess(role, token, first_name, local_token) => {
             app.role_user = role;
             app.server_token = token;
             app.first_name_user = first_name;
+            app.local_token = local_token;
 
             app.login_status = String::new();
             app.login_password = String::new();
@@ -238,29 +242,27 @@ pub fn handke_api_message(app: &mut BindKeyApp, message: ApiMessage) {
             app.current_page = Page::Home;
         }
         ApiMessage::VolumeCreationSuccess(data) => {
-            match serde_json::from_str::<UsbResponse>(&data) {
-                Ok(UsbResponse::Success(SuccessData::VolumeCreated {
+            match data {
+                UsbResponse::Success(SuccessData::VolumeCreated {
                     encrypted_key,
                     volume_id,
-                })) => {
+                }) => {
                     let clone_sender = app.sender.clone();
                     let clone_auth_token = app.server_token.clone();
                     let clone_volume_name = app.volume_created_name.clone();
-                    let clone_volume_size = app.volume_created_size.clone();
+                    let clone_volume_size = app.volume_created_size;
                     let clone_device_name = app.device_name.clone();
-                    let clone_volume_id = volume_id.clone();
                     let clone_url = app.config.api_url.clone();
-                    let clone_encrypted_key = encrypted_key;
                     tokio::spawn(async move {
                         let payload = VolumeCreatedInfo {
                             disk_id: clone_device_name,
                             name: clone_volume_name,
                             size_bytes: clone_volume_size,
-                            encrypted_key: clone_encrypted_key,
-                            id: clone_volume_id,
+                            encrypted_key: encrypted_key,
+                            id: volume_id,
                         };
                         let client = reqwest::Client::new();
-                        let url = format!("{}/volume", clone_url);
+                        let url = format!("{}/volumes", clone_url);
                         let resultat = client
                             .post(&url)
                             .json(&payload)
@@ -287,14 +289,11 @@ pub fn handke_api_message(app: &mut BindKeyApp, message: ApiMessage) {
                         }
                     });
                 }
-                Ok(UsbResponse::Error(msg)) => {
+                UsbResponse::Error(msg) => {
                     app.volume_status = format!(" Erreur Clé USB : {}", msg);
                 }
-                Ok(_) => {
+                _ => {
                     app.volume_status = "Erreur Protocole : Données inattendues reçues".to_string();
-                }
-                Err(e) => {
-                    app.volume_status = format!("Erreur lecture JSON : {}", e);
                 }
             };
         }
@@ -302,25 +301,24 @@ pub fn handke_api_message(app: &mut BindKeyApp, message: ApiMessage) {
             app.volume_status = texte.to_string();
         }
         ApiMessage::VolumeInfoReceived(data) => {
-            match serde_json::from_str::<UsbResponse>(&data) {
-                Ok(UsbResponse::Success(SuccessData::DeviceInfo {
+            match data {
+                UsbResponse::Success(SuccessData::DeviceInfo {
                     device_name,
                     device_size,
                     device_available_size,
-                })) => {
+                    mount_id,
+                }) => {
                     app.device_name = device_name;
                     app.device_size = device_size;
                     app.device_available_space = device_available_size;
+                    app.mount_id = mount_id;
                     app.volume_status = "Disque analysé avec succès.".to_string();
                 }
-                Ok(UsbResponse::Error(msg)) => {
+                UsbResponse::Error(msg) => {
                     app.volume_status = format!(" Erreur Clé USB : {}", msg);
                 }
-                Ok(_) => {
+                _ => {
                     app.volume_status = "Erreur Protocole : Données inattendues reçues".to_string();
-                }
-                Err(e) => {
-                    app.volume_status = format!("Erreur lecture JSON : {}", e);
                 }
             };
         }
@@ -422,10 +420,11 @@ pub fn handke_api_message(app: &mut BindKeyApp, message: ApiMessage) {
 
             app.device_available_space = 0;
             app.device_name.clear();
-            app.device_size.clear();
+            app.device_size = 0;
             app.volume_created_name.clear();
             app.volume_created_size = 0;
             app.volume_status.clear();
+            app.mount_id = 0;
 
             app.login_status = " Déconnexion réussie.".to_string();
         }

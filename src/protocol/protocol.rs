@@ -1,5 +1,8 @@
 use serde::{Deserialize, Serialize};
 use std::str;
+use uuid::Uuid;
+
+use crate::protocol::share_protocol::UsbResponse;
 
 //----------------------------------------- ÉNUMÉRATION---------------------------------
 
@@ -29,23 +32,23 @@ pub enum Role {
 
 pub enum ApiMessage {
     EnrollmentSuccess(String),
-    EnrollmentUsbSuccess(String),
-    ModificationUsbSuccess(String),
+    EnrollmentUsbSuccess(UsbResponse),
+    ModificationUsbSuccess(UsbResponse),
     LoginError(String),
     EnrollmentError(String),
-    ReceivedChallenge(String, String),
-    SignedChallenge(String, String),
-    LoginSuccess(Role, String, String),
-    VolumeCreationSuccess(String),
+    ReceivedChallenge(String, Uuid),
+    SignedChallenge(String, Uuid),
+    LoginSuccess(Role, String, String, String),
+    VolumeCreationSuccess(UsbResponse),
     VolumeCreationStatus(String),
-    VolumeInfoReceived(String),
+    VolumeInfoReceived(UsbResponse),
     FetchUsers,
     FetchUsersError(String),
     UserFetched(Vec<User>),
     LogOutSuccess,
     LogOutError(String),
     DeleteUserError(String),
-    DeleteUser(i32),
+    DeleteUser(Uuid),
     UserDeleted,
 }
 
@@ -54,22 +57,9 @@ pub enum ApiMessage {
 //--------------------------STRUCT LOGIN (DÉBUT)----------------------------
 
 #[derive(Serialize, Deserialize, Debug)]
-pub struct LoginPayload {
-    pub email: String,
-    pub password_hash: String,
-    pub bindkey_id: String,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
 pub struct ChallengeResponse {
     pub auth_challenge: String,
-    pub session_id: String,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-pub struct VerifyPayload {
-    pub session_id: String,
-    pub signature: String,
+    pub session_id: Uuid,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -77,6 +67,7 @@ pub struct LoginSuccessResponse {
     pub server_token: String,
     pub role: Role,
     pub first_name: String,
+    pub local_token: String,
 }
 
 //--------------------------STRUCT LOGIN (FIN)------------------------------
@@ -112,7 +103,8 @@ pub struct VolumeInitInfo {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct VolumeInitResponse {
-    pub id: String,
+    pub volume_id: String,
+    pub exists: bool,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -132,7 +124,7 @@ pub struct LogOut {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct User {
-    pub id: i32,
+    pub id: Uuid,
     pub first_name: String,
     pub last_name: String,
     pub email: String,

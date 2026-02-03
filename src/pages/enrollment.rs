@@ -1,8 +1,10 @@
-use crate::usb_service::send_command_bindkey;
-use crate::{ApiMessage, BindKeyApp, Role, share_protocol};
+use std::time::Duration;
+
+use crate::BindKeyApp;
+use crate::protocol::protocol::{ApiMessage, Role};
+use crate::protocol::share_protocol::{self, SuccessData, UsbResponse};
+use crate::usb_service::send_command;
 use eframe::egui;
-use egui::Button;
-use serialport::SerialPortType;
 use sha2::{Digest, Sha256};
 use validator::{self, ValidateEmail, ValidateLength};
 
@@ -106,7 +108,7 @@ pub fn show_enrollment_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
                             .min_size(egui::vec2(250.0, 45.0));
 
                         if ui.add(btn).clicked() {
-                            let bypass_usb = true;
+                            let bypass_usb = false;
                             app.enroll_status = if bypass_usb {
                                 "🛠️ SIMULATION : Bypass USB activé...".to_string()
                             } else {
@@ -114,33 +116,46 @@ pub fn show_enrollment_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
                             };
 
                             let clone_sender = app.sender.clone();
+                            let clone_port_name = app.current_port_name.clone();
 
                             tokio::spawn(async move {
-                                let resultat_usb: Result<String, String>;
+                                let resultat_usb: Result<UsbResponse, String>;
 
                                 if bypass_usb {
                                     println!(">> SIMULATION : On fait comme si la clé avait dit OUI");
                                     tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-                                    resultat_usb = Ok(r#"{
-                                      "status": "SUCCESS",
-                                      "data": {
-                                        "uid": "SIMULATED-BK-999",
-                                        "public_key": "simulated-key-xyz"
-                                      }
-                                    }"#.to_string());
+                                    resultat_usb = Ok(UsbResponse::Success(SuccessData::EnrollmentInfo {
+                                        uid: "SIMULATED-UID".to_string(),
+                                        public_key: "SIM-KEY-123".to_string(),
+                                    }));
                                 } else {
-                                    let mut port_name = String::new();
-                                    if let Ok(ports) = serialport::available_ports() {
-                                        for p in ports {
-                                            if let SerialPortType::UsbPort(_) = p.port_type {
-                                                port_name = p.port_name;
-                                                break;
-                                            };
-                                        }
-                                    }
 
-                                    if !port_name.is_empty() {
-                                        resultat_usb = send_command_bindkey(&port_name, share_protocol::Command::StartEnrollment);
+                                    if !clone_port_name.is_empty() {
+                                        match serialport::new(&clone_port_name, 115200)
+                                        .timeout(std::time::Duration::from_secs(15))
+                                        .open() {
+                                            Ok(mut port) => {
+                                                let _ = port.write_data_terminal_ready(true);
+                                                let _ = port.write_request_to_send(true);
+                                                tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                                                match crate::usb_service::send_text_command(&mut *port, "enroll") {
+                                                   Ok(map) => {
+                                                    let uid_opt = map.get("SN").cloned();
+                                                    let pub_opt = map.get("PUB").cloned();
+
+                                                    if let (Some(uid), Some(public_key)) = (uid_opt, pub_opt) {
+                                                        println!("{}, {}", uid, public_key);
+                                                        resultat_usb =   Ok(UsbResponse::Success(SuccessData::EnrollmentInfo { uid, public_key }));
+                                                    } else {
+                                                        resultat_usb = Err("Données incomplètes (SN et PUB manquant)".to_string());
+                                                    }
+                                                   }, Err(e) => {
+                                                    resultat_usb = Err(format!("Echec communication: {}", e));
+                                                   }
+                                                }
+                                            },
+                                            Err(e) =>  resultat_usb = Err(format!("Erreur ouverture port: {}", e)),
+                                        }
                                     } else {
                                         resultat_usb = Err("Aucune Bindkey détectée. Branchez-là !".to_string());
                                     }
@@ -167,30 +182,30 @@ pub fn show_enrollment_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
                             };
 
                             let clone_sender = app.sender.clone();
+                            let clone_port_name = app.current_port_name.clone();
 
                             tokio::spawn(async move {
-                                let resultat_usb: Result<String, String>;
+                                let resultat_usb: Result<UsbResponse, String>;
 
                                 if bypass_usb {
                                     println!(">> SIMULATION : On fait comme si la clé avait dit OUI");
                                     tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-                                    resultat_usb = Ok(r#"{
-                                            "status": "SUCCESS",
-                                            "data": {}
-                                    }"#.to_string());
+                                    resultat_usb = Ok(UsbResponse::Success(SuccessData::Ack));
                                 } else {
-                                    let mut port_name = String::new();
-                                    if let Ok(ports) = serialport::available_ports() {
-                                        for p in ports {
-                                            if let SerialPortType::UsbPort(_) = p.port_type {
-                                                port_name = p.port_name;
-                                                break;
-                                            };
-                                        }
-                                    }
 
-                                    if !port_name.is_empty() {
-                                        resultat_usb = send_command_bindkey(&port_name, share_protocol::Command::Modify);
+
+                                    if !clone_port_name.is_empty() {
+                                        match serialport::new(&clone_port_name, 115200)
+                                        .timeout(Duration::from_secs(2))
+                                        .open() {
+                                            Ok(mut port) => {
+                                                resultat_usb = send_command(&mut port, share_protocol::Command::Modify);
+                                            },
+                                            Err(e) => {
+                                                resultat_usb = Err(format!("Impossible d'ouvrir le port {}: {}", clone_port_name, e));
+                                            }
+                                        }
+
                                     } else {
                                         resultat_usb = Err("Aucune Bindkey détectée. Branchez-là !".to_string());
                                     }
@@ -270,7 +285,6 @@ pub fn show_enrollment_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
                                let _ = app.sender.send(ApiMessage::DeleteUser(user.id));
                             }
                             }
-                            
                             ui.end_row();
                         }
                     }

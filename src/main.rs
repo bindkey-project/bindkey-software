@@ -6,10 +6,9 @@ use std::time::{Duration, Instant};
 mod config;
 mod pages;
 mod protocol;
-mod share_protocol;
+use crate::protocol::protocol::{ApiMessage, LogOut, Page, Role, User};
 mod usb_service;
 use crate::config::AppConfig;
-use crate::protocol::{ApiMessage, ChallengeResponse, LogOut, LoginPayload, Page, Role, User};
 use validator::Validate;
 mod event_handler;
 
@@ -28,12 +27,13 @@ struct BindKeyApp {
     pub enroll_email: String,
     #[validate(length(min = 14))]
     pub enroll_password: String,
-    pub enroll_role: protocol::Role,
+    pub enroll_role: Role,
     pub device_name: String,
-    pub device_size: String,
+    pub device_size: u32,
     pub device_available_space: u32,
     pub volume_created_name: String,
     pub volume_created_size: u32,
+    pub mount_id: i32,
     pub receiver: Receiver<ApiMessage>,
     pub sender: Sender<ApiMessage>,
     pub login_status: String,
@@ -42,12 +42,14 @@ struct BindKeyApp {
     #[validate(email)]
     pub login_email: String,
     pub login_password: String,
+    pub is_admin_mode: bool,
     pub server_token: String,
     pub local_token: String,
     pub config: AppConfig,
     pub usb_connected: bool,
     pub last_usb_check: Instant,
     pub users_list: Vec<User>,
+    pub current_port_name: String,
 }
 
 impl BindKeyApp {
@@ -92,10 +94,11 @@ impl BindKeyApp {
             enroll_password: String::new(),
             enroll_role: Role::NONE,
             device_name: String::new(),
-            device_size: String::new(),
+            device_size: 0,
             device_available_space: 0,
             volume_created_name: String::new(),
             volume_created_size: 1,
+            mount_id: 0,
             receiver: rx,
             sender: tx,
             login_status: String::new(),
@@ -103,12 +106,14 @@ impl BindKeyApp {
             volume_status: String::new(),
             login_email: String::new(),
             login_password: String::new(),
+            is_admin_mode: false,
             server_token: String::new(),
             local_token: String::new(),
             config,
             usb_connected: false,
             last_usb_check: Instant::now(),
             users_list: Vec::new(),
+            current_port_name: String::new(),
         }
     }
 }
@@ -119,19 +124,28 @@ impl eframe::App for BindKeyApp {
             self.last_usb_check = Instant::now();
         }
 
-        let mut found = false;
+        let mut found_port = String::new();
+
+        // 1. On cherche le port qui correspond à tes VID/PID
         if let Ok(ports) = serialport::available_ports() {
             for p in ports {
-                if let SerialPortType::UsbPort(info) = p.port_type {
-                    if info.vid == 0x1a86 && info.pid == 0x55d3 {
-                        found = true;
-                        break;
+                match p.port_type {
+                    SerialPortType::UsbPort(info) => {
+                        // VID/PID de la BindKey (CH340: 0x1A86 / 0x55D3)
+                        if info.vid == 0x10c4 && info.pid == 0xea60 {
+                            found_port = p.port_name;
+                            break; // Trouvé ! On sort de la boucle
+                        }
                     }
+                    _ => {}
                 }
             }
         }
-        //self.usb_connected = found;
-        self.usb_connected = true;
+
+        // 2. Mise à jour directe de l'état
+        // Si found_port n'est pas vide, c'est qu'on est connecté
+        self.usb_connected = !found_port.is_empty();
+        self.current_port_name = found_port;
 
         ctx.request_repaint_after(Duration::from_secs(1));
 
