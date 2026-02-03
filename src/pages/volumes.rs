@@ -1,7 +1,8 @@
 use std::time::Duration;
 
+use crate::BindKeyApp;
 use crate::protocol::protocol::{ApiMessage, VolumeInitInfo, VolumeInitResponse};
-use crate::protocol::share_protocol::{self, SuccessData, UsbResponse};
+use crate::protocol::share_protocol::{SuccessData, UsbResponse};
 use eframe::egui;
 
 pub fn show_volumes_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
@@ -52,7 +53,6 @@ pub fn show_volumes_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
                                     device_name: "Clé USB de Willy".to_string(),
                                     device_size: 64,
                                     device_available_size: 45,
-                                    mount_id: 2,
                                 }));
                             } else {
                                 if !clone_port_name.is_empty() {
@@ -61,10 +61,36 @@ pub fn show_volumes_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
                                         .open()
                                     {
                                         Ok(mut port) => {
-                                            resultat_usb = send_command(
-                                                &mut port,
-                                                share_protocol::Command::GetVolume,
-                                            );
+                                            let _ = port.write_data_terminal_ready(true);
+                                                let _ = port.write_request_to_send(true);
+                                                tokio::time::sleep(Duration::from_secs(2)).await;
+
+                                                match crate::usb_service::send_text_command(&mut *port, "getdevice") {
+                                                    Ok(map) => {
+                                                        let name_opt = map.get("DN").cloned();
+                                                        let total_opt = map.get("DST").cloned();
+                                                        let free_opt = map.get("DSF").cloned();
+                                                     if let (Some(name_str), Some(total_str), Some(free_str)) = (name_opt, total_opt, free_opt) {
+
+                                                        resultat_usb = match (total_str.trim().parse::<u32>(), free_str.trim().parse::<u32>()) {
+                                                            (Ok(total), Ok(free)) => {
+                                                                println!("Info: {}, {}, {}", name_str, total, free);
+                                                                Ok(UsbResponse::Success(SuccessData::DeviceInfo {
+                                                                    device_name: name_str.clone(),
+                                                                    device_size: total,
+                                                                    device_available_size: free
+                                                                }))
+                                                            },
+                                                            _ => Err("Format des tailles (DST/DSF) invalide (pas des nombres)".to_string()),
+                                                        };
+                                                     } else {
+                                                        resultat_usb = Err("Données incomplètes".to_string());
+                                                     }
+                                                    },
+                                                    Err(e) => {
+                                                        resultat_usb = Err(format!("Echec communication: {}", e));
+                                                    }
+                                                }
                                         }
                                         Err(e) => {
                                             resultat_usb =
@@ -196,7 +222,6 @@ pub fn show_volumes_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
                             let clone_volume_name = app.volume_created_name.clone();
                             let clone_volume_size = app.volume_created_size;
                             let clone_device_name = app.device_name.clone();
-                            let clone_mount_id = app.mount_id;
                             let clone_url = app.config.api_url.clone();
                             let clone_auth_token = app.server_token.clone();
                             let clone_port_name = app.current_port_name.clone();
@@ -221,12 +246,10 @@ pub fn show_volumes_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
                                         if let Ok(data) =
                                             response.json::<VolumeInitResponse>().await
                                         {
-
                                             if data.exists {
-                                                let _ = clone_sender.send(ApiMessage::VolumeCreationStatus(format!("Erreur le vomue '{}' existe déjà", clone_volume_name)));
+                                                let _ = clone_sender.send(ApiMessage::VolumeCreationStatus(format!("Erreur le volume '{}' existe déjà", clone_volume_name)));
                                                 return;
                                             }
-
 
                                             let serveur_volume_id = data.volume_id;
 
@@ -258,18 +281,25 @@ pub fn show_volumes_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
                                                     .timeout(Duration::from_secs(2))
                                                     .open() {
                                                         Ok(mut port) => {
-                                                            let volumepayload =
-                                                        share_protocol::VolumeCreationPayload {
-                                                            volume_name: clone_volume_name,
-                                                            size_gb: clone_volume_size,
-                                                            volume_id: serveur_volume_id,
-                                                            mount_id: clone_mount_id,
-                                                        };
 
-                                                        resultat_usb = send_command(
-                                                            &mut port,
-                                                            share_protocol::Command::CreateVolume(volumepayload)
-                                                        );
+                                                        let _ = port.write_data_terminal_ready(true);
+                                                        let _ = port.write_request_to_send(true);
+                                                        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+
+                                                        let cmd = format!("volume_name={}\n size_gb={}\n volume_id={}\n", clone_volume_name, clone_volume_size, serveur_volume_id);
+
+                                                        match crate::usb_service::send_text_command(&mut *port, &cmd) {
+                                                            Ok(map) => {
+                                                                if let Some(encrypted_key) = map.get("KEY").cloned() {
+                                                                    resultat_usb = Ok(UsbResponse::Success(SuccessData::VolumeCreated { encrypted_key, volume_id: serveur_volume_id }));
+                                                                } else {
+                                                                    resultat_usb = Err("Données incomplètes".to_string());
+                                                                }
+                                                            },
+                                                            Err(e) => {
+                                                                resultat_usb = Err(format!("Échec communication: {}", e));
+                                                            }
+                                                        }
                                                         },
                                                         Err(e) => {
                                                             resultat_usb = Err(format!("Impossible d'ouvrir le port: {}", e));

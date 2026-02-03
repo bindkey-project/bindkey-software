@@ -308,12 +308,10 @@ pub fn handke_api_message(app: &mut BindKeyApp, message: ApiMessage) {
                     device_name,
                     device_size,
                     device_available_size,
-                    mount_id,
                 }) => {
                     app.device_name = device_name;
                     app.device_size = device_size;
                     app.device_available_space = device_available_size;
-                    app.mount_id = mount_id;
                     app.volume_status = "Disque analysé avec succès.".to_string();
                 }
                 UsbResponse::Error(msg) => {
@@ -426,7 +424,6 @@ pub fn handke_api_message(app: &mut BindKeyApp, message: ApiMessage) {
             app.volume_created_name.clear();
             app.volume_created_size = 0;
             app.volume_status.clear();
-            app.mount_id = 0;
 
             app.login_status = " Déconnexion réussie.".to_string();
         }

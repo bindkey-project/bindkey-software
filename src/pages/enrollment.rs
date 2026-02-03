@@ -2,8 +2,7 @@ use std::time::Duration;
 
 use crate::BindKeyApp;
 use crate::protocol::protocol::{ApiMessage, Role};
-use crate::protocol::share_protocol::{self, SuccessData, UsbResponse};
-use crate::usb_service::send_command;
+use crate::protocol::share_protocol::{SuccessData, UsbResponse};
 use eframe::egui;
 use sha2::{Digest, Sha256};
 use validator::{self, ValidateEmail, ValidateLength};
@@ -199,13 +198,23 @@ pub fn show_enrollment_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
                                         .timeout(Duration::from_secs(2))
                                         .open() {
                                             Ok(mut port) => {
-                                                resultat_usb = send_command(&mut port, share_protocol::Command::Modify);
+                                                let _ = port.write_data_terminal_ready(true);
+                                                let _ = port.write_request_to_send(true);
+                                                tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                                                match crate::usb_service::send_text_command(&mut *port, "modify") {
+                                                    Ok(_) => {
+                                                        println!("La clé a validé l'opération (Ok reçu)");
+                                                        resultat_usb = Ok(UsbResponse::Success(SuccessData::Ack));
+                                                    },
+                                                    Err(e) => {
+                                                        resultat_usb = Ok(UsbResponse::Error(format!("Pas de validation : {}", e)));
+                                                    }
+                                                }
                                             },
                                             Err(e) => {
                                                 resultat_usb = Err(format!("Impossible d'ouvrir le port {}: {}", clone_port_name, e));
                                             }
                                         }
-
                                     } else {
                                         resultat_usb = Err("Aucune Bindkey détectée. Branchez-là !".to_string());
                                     }
