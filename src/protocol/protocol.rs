@@ -1,13 +1,13 @@
+use crate::protocol::share_protocol::UsbResponse;
+use reqwest::{Certificate, Client};
 use serde::{Deserialize, Serialize};
-use std::str;
-use uuid::Uuid;
-use reqwest::{Client, Certificate};
 use std::fs;
+use std::net::{IpAddr, SocketAddr};
 use std::path::Path;
-use std::net::{SocketAddr, IpAddr};
+use std::str;
 use std::str::FromStr;
 use std::time::Duration;
-use crate::protocol::share_protocol::UsbResponse;
+use uuid::Uuid;
 
 //----------------------------------------- ÉNUMÉRATION---------------------------------
 
@@ -137,34 +137,36 @@ pub struct User {
 }
 
 pub fn create_secure_client() -> Result<Client, String> {
-    
     let ip_filename = "server_ip.txt";
-    let default_ip = "172.16.253.17"; 
+    let default_ip = "172.16.253.17";
 
     let ip_str = if Path::new(ip_filename).exists() {
         fs::read_to_string(ip_filename)
             .map_err(|e| format!("Impossible de lire {}: {}", ip_filename, e))?
-            .trim() 
+            .trim()
             .to_string()
     } else {
-        println!("⚠️ Fichier {} introuvable, utilisation de l'IP défaut : {}", ip_filename, default_ip);
+        println!(
+            "⚠️ Fichier {} introuvable, utilisation de l'IP défaut : {}",
+            ip_filename, default_ip
+        );
         default_ip.to_string()
     };
 
-    let ip_addr = IpAddr::from_str(&ip_str)
-        .map_err(|e| format!("IP invalide '{}': {}", ip_str, e))?;
-    
-    let addr = SocketAddr::new(ip_addr, 8080);
+    let ip_addr =
+        IpAddr::from_str(&ip_str).map_err(|e| format!("IP invalide '{}': {}", ip_str, e))?;
+
+    let addr = SocketAddr::new(ip_addr, 443);
 
     let cert_bytes = include_bytes!("../../bindkey_cert.pem");
-    
+
     let cert = Certificate::from_pem(cert_bytes)
         .map_err(|e| format!("Certificat PEM invalide/corrompu : {}", e))?;
 
     let client = Client::builder()
-        .add_root_certificate(cert) 
-        .resolve("api.bindkey.local", addr) 
-        .timeout(Duration::from_secs(10)) 
+        .add_root_certificate(cert)
+        .resolve("api.bindkey.local", addr)
+        .timeout(Duration::from_secs(10))
         .build()
         .map_err(|e| format!("Erreur construction client Reqwest : {}", e))?;
 

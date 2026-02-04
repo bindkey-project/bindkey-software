@@ -98,7 +98,6 @@ fn handle_admin_login(app: &mut BindKeyApp) {
     let clone_api_client = app.api_client.clone();
 
     tokio::spawn(async move {
-
         let url = format!("{}/sessions/test", clone_url);
         let payload = json!({
             "email": clone_email,

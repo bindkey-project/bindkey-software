@@ -81,7 +81,7 @@ impl BindKeyApp {
             Ok(c) => c,
             Err(e) => {
                 eprintln!("ERREUR FATALE CLIENT HTTP : {}", e);
-                reqwest::Client::new() 
+                reqwest::Client::new()
             }
         };
 
@@ -135,7 +135,7 @@ impl eframe::App for BindKeyApp {
                     SerialPortType::UsbPort(info) => {
                         if info.vid == 0x10c4 && info.pid == 0xea60 {
                             found_port = p.port_name;
-                            break; 
+                            break;
                         }
                     }
                     _ => {}
@@ -193,7 +193,7 @@ impl eframe::App for BindKeyApp {
                         let payload = LogOut {
                             server_token: clone_auth_token.clone(),
                         };
-                        
+
                         let result = clone_api_client
                             .post(format!("{}/sessions/logout", url))
                             .json(&payload)

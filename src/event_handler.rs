@@ -139,7 +139,7 @@ pub fn handke_api_message(app: &mut BindKeyApp, message: ApiMessage) {
             tokio::spawn(async move {
                 if !clone_port_name.is_empty() {
                     match serialport::new(&clone_port_name, 115200)
-                        .timeout(Duration::from_secs(2))
+                        .timeout(Duration::from_secs(15))
                         .open()
                     {
                         Ok(mut port) => {
@@ -147,16 +147,14 @@ pub fn handke_api_message(app: &mut BindKeyApp, message: ApiMessage) {
                             std::thread::sleep(Duration::from_millis(100));
 
                             let cmd = format!("challenge={}", le_challenge);
-
+                            let _ = clone_sender
+                                .send(ApiMessage::LoginError("Scannez votre doigt".to_string()));
                             match send_text_command(&mut *port, &cmd) {
                                 Ok(map) => {
                                     if let Some(sig) = map.get("SIG") {
                                         let _ = clone_sender.send(ApiMessage::SignedChallenge(
                                             sig.clone(),
                                             session_id,
-                                        ));
-                                        let _ = clone_sender.send(ApiMessage::LoginError(
-                                            "Scannez votre doigt".to_string(),
                                         ));
                                     } else {
                                         let _ = clone_sender.send(ApiMessage::LoginError(
@@ -332,7 +330,11 @@ pub fn handke_api_message(app: &mut BindKeyApp, message: ApiMessage) {
 
             tokio::spawn(async move {
                 let url = format!("{}/users", url);
-                let resultat = clone_api_client.get(url).bearer_auth(clone_auth_token).send().await;
+                let resultat = clone_api_client
+                    .get(url)
+                    .bearer_auth(clone_auth_token)
+                    .send()
+                    .await;
 
                 match resultat {
                     Ok(response) => {
