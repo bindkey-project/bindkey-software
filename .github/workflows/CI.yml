@@ -46,10 +46,17 @@ jobs:
     - name: Build Release
       run: cargo build --release --verbose
 
+    - name: Prepare Package
+      run: |
+        mkdir release_package
+        
+        cp target/release/bindkey-software release_package/bindkey-client
+        
+        cp server_ip.txt release_package/
+
     - name: Upload Artifact
       uses: actions/upload-artifact@v4
       with:
-        name: bindkey-linux-executable
-
-        path: target/release/bindkey-software 
+        name: bindkey-linux-package 
+        path: release_package/      
         retention-days: 7
