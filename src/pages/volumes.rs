@@ -58,28 +58,28 @@ pub fn show_volumes_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
 
                                 let disks = Disks::new_with_refreshed_list();
                                 for disk in &disks {
-    // 1 Go (GiB) = 1024 * 1024 * 1024 octets
-    const GB_DIVISOR: u64 = 1024 * 1024 * 1024;
+                                    const GB_DIVISOR: f64 = 1024.0 * 1024.0 * 1024.0;
 
-    // On fait la conversion avant de caster en u32
-    // (Sinon le u32 est trop petit pour contenir la taille en octets d'une clé > 4Go)
-    let total_gb = (disk.total_space() / GB_DIVISOR) as u32;
-    let available_gb = (disk.available_space() / GB_DIVISOR) as u32;
+                                    let raw_total = (disk.total_space() as f64) / GB_DIVISOR;
+                                    let raw_available = (disk.available_space() as f64) / GB_DIVISOR;
 
-    if disk.mount_point() == "/run/media/jb/BK TEST2" {
-        resultat_usb = Ok(UsbResponse::Success(SuccessData::DeviceInfo {
-            device_name: "BK TEST2".to_string(), 
-            device_size: total_gb,
-            device_available_size: available_gb
-        }));
-    } else if disk.mount_point() == "/run/media/jb/BINDKEY" {
-        resultat_usb = Ok(UsbResponse::Success(SuccessData::DeviceInfo {
-            device_name: "BINDKEY".to_string(),
-            device_size: total_gb,
-            device_available_size: available_gb
-        }));
-    }
-}
+                                    let total_gb = (raw_total * 1000.0).round() / 1000.0;
+                                    let available_gb = (raw_available * 1000.0).round() / 1000.0;
+
+                                    if disk.mount_point() == "/media/ouiyam/BK TEST2" {
+                                        resultat_usb = Ok(UsbResponse::Success(SuccessData::DeviceInfo { 
+                                            device_name: "BK TEST2".to_string(), 
+                                            device_size: total_gb, 
+                                            device_available_size: available_gb 
+                                        }));
+                                    } else if disk.mount_point() == "/media/ouiyam/BINDKEY" {
+                                        resultat_usb = Ok(UsbResponse::Success(SuccessData::DeviceInfo { 
+                                            device_name: "BINDKEY".to_string(), 
+                                            device_size: total_gb, 
+                                            device_available_size: available_gb 
+                                        }));
+                                    }
+                                }
 
                             } else {
                                 if !clone_port_name.is_empty() {
@@ -104,8 +104,8 @@ pub fn show_volumes_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
                                                                 println!("Info: {}, {}, {}", name_str, total, free);
                                                                 Ok(UsbResponse::Success(SuccessData::DeviceInfo {
                                                                     device_name: name_str.clone(),
-                                                                    device_size: total,
-                                                                    device_available_size: free
+                                                                    device_size: total as f64,
+                                                                    device_available_size: free as f64
                                                                 }))
                                                             },
                                                             _ => Err("Format des tailles (DST/DSF) invalide (pas des nombres)".to_string()),
@@ -185,7 +185,7 @@ pub fn show_volumes_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
                             ui.end_row();
 
                             ui.label("Espace Disponible :");
-                            let color = if app.device_available_space < 5 {
+                            let color = if app.device_available_space < 5.0 {
                                 egui::Color32::RED
                             } else {
                                 egui::Color32::GREEN
@@ -198,7 +198,7 @@ pub fn show_volumes_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
                 ui.add_space(20.0);
             }
 
-            let conditions = !app.device_name.is_empty() && app.device_available_space > 0;
+            let conditions = !app.device_name.is_empty() && app.device_available_space > 0.0;
 
             if conditions {
                 frame_style.show(ui, |ui| {
@@ -217,15 +217,15 @@ pub fn show_volumes_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
 
                     ui.add_space(10.0);
 
-                    let max_size = if app.device_available_space > 0 {
+                    let max_size = if app.device_available_space > 0.0 {
                         app.device_available_space
                     } else {
-                        1
+                        1.0
                     };
                     ui.horizontal(|ui| {
                         ui.label("Taille allouée :");
                         ui.add(
-                            egui::Slider::new(&mut app.volume_created_size, 1..=max_size)
+                            egui::Slider::new(&mut app.volume_created_size, 1..=max_size as u32)
                                 .text("Go"),
                         );
                     });

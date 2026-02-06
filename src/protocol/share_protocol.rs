@@ -31,8 +31,8 @@ pub enum SuccessData {
 
     DeviceInfo {
         device_name: String,
-        device_size: u32,
-        device_available_size: u32,
+        device_size: f64,
+        device_available_size: f64,
     },
     VolumeCreated {
         encrypted_key: String,

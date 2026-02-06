@@ -464,9 +464,9 @@ pub fn handke_api_message(app: &mut BindKeyApp, message: ApiMessage) {
             app.enroll_email.clear();
             app.enroll_status.clear();
 
-            app.device_available_space = 0;
+            app.device_available_space = 0.0;
             app.device_name.clear();
-            app.device_size = 0;
+            app.device_size = 0.0;
             app.volume_created_name.clear();
             app.volume_created_size = 0;
             app.volume_status.clear();
