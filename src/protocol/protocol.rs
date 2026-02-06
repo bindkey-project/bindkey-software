@@ -30,7 +30,7 @@ pub enum Page {
 #[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
 pub enum Role {
     USER,
-    ENROLLEUR,
+    ENROLLER,
     ADMIN,
     NONE,
 }

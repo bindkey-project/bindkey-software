@@ -67,8 +67,8 @@ pub fn show_enrollment_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
                             .show_ui(ui, |ui| {
                                 if app.role_user == Role::ADMIN {
                                     ui.selectable_value(&mut app.enroll_role, Role::USER, "USER");
-                                    ui.selectable_value(&mut app.enroll_role, Role::ENROLLEUR, "ENROLLEUR");
-                                } else if app.role_user == Role::ENROLLEUR {
+                                    ui.selectable_value(&mut app.enroll_role, Role::ENROLLER, "ENROLLER");
+                                } else if app.role_user == Role::ENROLLER {
                                     ui.selectable_value(&mut app.enroll_role, Role::USER, "USER");
                                 }
                             });
@@ -131,12 +131,15 @@ pub fn show_enrollment_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
 
                                     if !clone_port_name.is_empty() {
                                         match serialport::new(&clone_port_name, 115200)
-                                        .timeout(std::time::Duration::from_secs(15))
+                                        .timeout(std::time::Duration::from_secs(20))
                                         .open() {
                                             Ok(mut port) => {
                                                 let _ = port.write_data_terminal_ready(true);
                                                 let _ = port.write_request_to_send(true);
                                                 tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+
+                                                let _ = clone_sender.send(ApiMessage::EnrollmentError("Scanner le doigt de l'utilisateur".to_string()));
+
                                                 match crate::usb_service::send_text_command(&mut *port, "enroll") {
                                                    Ok(map) => {
                                                     let uid_opt = map.get("SN").cloned();
@@ -276,14 +279,14 @@ pub fn show_enrollment_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
                             ui.label(&user.email);
 
                             let color = match user.role {
-                                Role::ENROLLEUR => egui::Color32::BLUE,
+                                Role::ENROLLER => egui::Color32::BLUE,
                                 Role::ADMIN => egui::Color32::RED,
                                 _ => egui::Color32::GRAY,
 
                             };
                             let role_text = match user.role {
                                 Role::ADMIN => "Administrateur",
-                                Role::ENROLLEUR => "Enrôleur",
+                                Role::ENROLLER => "Enrôleur",
                                 Role::USER => "Utilisateur",
                                 Role::NONE => "Aucun"
                             };

@@ -4,6 +4,7 @@ use crate::BindKeyApp;
 use crate::protocol::protocol::{ApiMessage, VolumeInitInfo, VolumeInitResponse};
 use crate::protocol::share_protocol::{SuccessData, UsbResponse};
 use eframe::egui;
+use sysinfo::{Disks, System};
 
 pub fn show_volumes_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
     let usb_connected = app.usb_connected;
@@ -44,16 +45,42 @@ pub fn show_volumes_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
                         let bypass_usb = true;
 
                         tokio::spawn(async move {
-                            let resultat_usb: Result<UsbResponse, String>;
+                            let mut resultat_usb: Result<UsbResponse, String>;
 
                             if bypass_usb {
                                 println!(">> SIMULATION SCAN DISQUE");
                                 tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-                                resultat_usb = Ok(UsbResponse::Success(SuccessData::DeviceInfo {
-                                    device_name: "Clé USB de Willy".to_string(),
-                                    device_size: 64,
-                                    device_available_size: 45,
-                                }));
+
+                                resultat_usb = Err("Pas de Bindkey".to_string());
+
+                                let mut sys = System::new_all();
+                                sys.refresh_all();
+
+                                let disks = Disks::new_with_refreshed_list();
+                                for disk in &disks {
+    // 1 Go (GiB) = 1024 * 1024 * 1024 octets
+    const GB_DIVISOR: u64 = 1024 * 1024 * 1024;
+
+    // On fait la conversion avant de caster en u32
+    // (Sinon le u32 est trop petit pour contenir la taille en octets d'une clé > 4Go)
+    let total_gb = (disk.total_space() / GB_DIVISOR) as u32;
+    let available_gb = (disk.available_space() / GB_DIVISOR) as u32;
+
+    if disk.mount_point() == "/run/media/jb/BK TEST2" {
+        resultat_usb = Ok(UsbResponse::Success(SuccessData::DeviceInfo {
+            device_name: "BK TEST2".to_string(), 
+            device_size: total_gb,
+            device_available_size: available_gb
+        }));
+    } else if disk.mount_point() == "/run/media/jb/BINDKEY" {
+        resultat_usb = Ok(UsbResponse::Success(SuccessData::DeviceInfo {
+            device_name: "BINDKEY".to_string(),
+            device_size: total_gb,
+            device_available_size: available_gb
+        }));
+    }
+}
+
                             } else {
                                 if !clone_port_name.is_empty() {
                                     match serialport::new(&clone_port_name, 115200)

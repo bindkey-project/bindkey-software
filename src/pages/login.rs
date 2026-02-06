@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use crate::protocol::protocol::{ApiMessage, ChallengeResponse, LoginSuccessResponse};
+use crate::protocol::protocol::{ApiMessage, ChallengeResponse, LoginSuccessResponse, Page, Role};
 use crate::usb_service::send_text_command;
 use crate::{BindKeyApp, pages::enrollment::hash_password_with_salt};
 use eframe::egui;
@@ -69,12 +69,25 @@ pub fn show_login_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
                         ui.add_space(20.0);
 
                         if !app.login_status.is_empty() {
-                            let color = if app.login_status.contains("cours") {
-                                egui::Color32::from_rgb(100, 200, 255)
+                            if app.is_loading {
+                                ui.horizontal(|ui| {
+                                    ui.spinner();
+                                    ui.add_space(5.0);
+                                    let color = if app.login_status.contains("cours") {
+                                        egui::Color32::from_rgb(100, 200, 255)
+                                    } else {
+                                        egui::Color32::from_rgb(255, 100, 100)
+                                    };
+                                    ui.colored_label(color, &app.login_status);
+                                });
                             } else {
-                                egui::Color32::from_rgb(255, 100, 100)
-                            };
-                            ui.colored_label(color, &app.login_status);
+                                let color = if app.login_status.contains("cours") {
+                                    egui::Color32::from_rgb(100, 200, 255)
+                                } else {
+                                    egui::Color32::from_rgb(255, 100, 100)
+                                };
+                                ui.colored_label(color, &app.login_status);
+                            }
                         }
                     });
                 });
@@ -89,6 +102,8 @@ fn handle_admin_login(app: &mut BindKeyApp) {
         app.login_status = "Champs invalides".to_string();
         return;
     }
+    app.role_user = Role::ADMIN;
+    app.current_page = Page::Home;
     app.login_status = "Authentification Admin en cours...".to_string();
 
     let clone_sender = app.sender.clone();
@@ -146,7 +161,7 @@ fn handle_login(app: &mut BindKeyApp, ctx: egui::Context) {
         app.login_status = " Veuillez brancher votre BindKey".to_string();
         return;
     }
-
+    app.is_loading = true;
     app.login_status = " Lecture de la BindKey...".to_string();
 
     let clone_sender = app.sender.clone();

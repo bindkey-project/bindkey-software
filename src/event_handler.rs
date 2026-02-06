@@ -105,6 +105,14 @@ pub fn handke_api_message(app: &mut BindKeyApp, message: ApiMessage) {
                                     " Modifié (API OK) !".to_string(),
                                 ));
                             } else {
+                                println!(
+                                    "code: {}, {:?}",
+                                    response.status(),
+                                    response
+                                        .text()
+                                        .await
+                                        .unwrap_or_else(|_| "Impossible".to_string())
+                                );
                                 let _ = clone_sender.send(ApiMessage::EnrollmentError(
                                     " Refus serveur (API KO)".to_string(),
                                 ));
@@ -128,12 +136,17 @@ pub fn handke_api_message(app: &mut BindKeyApp, message: ApiMessage) {
         },
         ApiMessage::LoginError(texte) => {
             app.login_status = texte.to_string();
+            app.is_loading = false;
         }
-        ApiMessage::EnrollmentError(texte) => app.enroll_status = texte.to_string(),
+        ApiMessage::EnrollmentError(texte) => {
+            app.enroll_status = texte.to_string();
+            app.is_loading = false;
+        }
 
         ApiMessage::ReceivedChallenge(le_challenge, session_id) => {
             app.login_status =
                 "Challenge reçue, communication avec la bindkey en cours".to_string();
+            app.is_loading = true;
             let clone_sender = app.sender.clone();
             let clone_port_name = app.current_port_name.clone();
             tokio::spawn(async move {
@@ -152,6 +165,7 @@ pub fn handke_api_message(app: &mut BindKeyApp, message: ApiMessage) {
                             match send_text_command(&mut *port, &cmd) {
                                 Ok(map) => {
                                     if let Some(sig) = map.get("SIG") {
+                                        println!("🔍 DEBUG SIGNATURE: '{}, {}'", sig, sig.len());
                                         let _ = clone_sender.send(ApiMessage::SignedChallenge(
                                             sig.clone(),
                                             session_id,
@@ -172,7 +186,7 @@ pub fn handke_api_message(app: &mut BindKeyApp, message: ApiMessage) {
                         }
                         Err(e) => {
                             let _ = clone_sender.send(ApiMessage::LoginError(format!(
-                                "Impossible d'ouvirir le port: {}",
+                                "Impossible d'ouvrir le port: {}",
                                 e
                             )));
                         }
@@ -186,6 +200,7 @@ pub fn handke_api_message(app: &mut BindKeyApp, message: ApiMessage) {
         ApiMessage::SignedChallenge(signature, session_id) => {
             app.login_status =
                 "Signature générée. Vérification finale auprès du serveur".to_string();
+            app.is_loading = true;
             let clone_session_id = session_id.clone();
             let clone_signature = signature.clone();
             let clone_sender = app.sender.clone();
@@ -194,8 +209,8 @@ pub fn handke_api_message(app: &mut BindKeyApp, message: ApiMessage) {
 
             tokio::spawn(async move {
                 let payload = json!({
-                    session_id: clone_session_id,
-                    signature: clone_signature,
+                    "session_id": clone_session_id,
+                    "signature": clone_signature,
                 });
                 let resultat = clone_api_client
                     .post(format!("{}/sessions/verify", clone_url))
@@ -223,6 +238,15 @@ pub fn handke_api_message(app: &mut BindKeyApp, message: ApiMessage) {
                             let _ = clone_sender.send(ApiMessage::LoginError(
                                 "Signature refusée par le serveur".to_string(),
                             ));
+                            println!(
+                                "code: {}, {:?}",
+                                response.status(),
+                                response
+                                    .text()
+                                    .await
+                                    .unwrap_or_else(|_| "Impossible".to_string())
+                            );
+                            println!("session_id: {}", session_id);
                         }
                     }
                     Err(error) => {
@@ -239,6 +263,7 @@ pub fn handke_api_message(app: &mut BindKeyApp, message: ApiMessage) {
 
             app.login_status = String::new();
             app.login_password = String::new();
+            app.is_loading = false;
 
             app.current_page = Page::Home;
         }
@@ -329,7 +354,7 @@ pub fn handke_api_message(app: &mut BindKeyApp, message: ApiMessage) {
             let clone_api_client = app.api_client.clone();
 
             tokio::spawn(async move {
-                let url = format!("{}/users", url);
+                let url = format!("{}/admin/users", url);
                 let resultat = clone_api_client
                     .get(url)
                     .bearer_auth(clone_auth_token)
@@ -353,6 +378,14 @@ pub fn handke_api_message(app: &mut BindKeyApp, message: ApiMessage) {
                                 "Erreur serveur: {}",
                                 response.status()
                             )));
+                            println!(
+                                "code: {}, {:?}",
+                                response.status(),
+                                response
+                                    .text()
+                                    .await
+                                    .unwrap_or_else(|_| "Impossible".to_string())
+                            );
                         }
                     }
                     Err(e) => {
@@ -391,6 +424,14 @@ pub fn handke_api_message(app: &mut BindKeyApp, message: ApiMessage) {
                                 "Erreur lors de la suppression: {}",
                                 reponse.status()
                             )));
+                            println!(
+                                "code: {}, {:?}",
+                                reponse.status(),
+                                reponse
+                                    .text()
+                                    .await
+                                    .unwrap_or_else(|_| "Impossible".to_string())
+                            );
                         }
                     }
                     Err(e) => {
@@ -421,6 +462,7 @@ pub fn handke_api_message(app: &mut BindKeyApp, message: ApiMessage) {
             app.enroll_firstname.clear();
             app.enroll_lastname.clear();
             app.enroll_email.clear();
+            app.enroll_status.clear();
 
             app.device_available_space = 0;
             app.device_name.clear();
@@ -428,6 +470,7 @@ pub fn handke_api_message(app: &mut BindKeyApp, message: ApiMessage) {
             app.volume_created_name.clear();
             app.volume_created_size = 0;
             app.volume_status.clear();
+            app.users_list.clear();
 
             app.login_status = " Déconnexion réussie.".to_string();
         }

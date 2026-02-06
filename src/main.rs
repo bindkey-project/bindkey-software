@@ -13,6 +13,7 @@ mod event_handler;
 
 #[derive(Validate)]
 struct BindKeyApp {
+    pub is_loading: bool,
     pub current_page: Page,
     pub first_name_user: String,
     pub role_user: Role,
@@ -88,6 +89,7 @@ impl BindKeyApp {
         let (tx, rx) = channel();
         let config = AppConfig::load();
         BindKeyApp {
+            is_loading: false,
             current_page: Page::Login,
             first_name_user: String::new(),
             role_user: Role::NONE,
@@ -123,6 +125,7 @@ impl BindKeyApp {
 
 impl eframe::App for BindKeyApp {
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+        egui_extras::install_image_loaders(ctx);
         if self.last_usb_check.elapsed() > Duration::from_secs(1) {
             self.last_usb_check = Instant::now();
         }
@@ -143,7 +146,7 @@ impl eframe::App for BindKeyApp {
             }
         }
 
-        self.usb_connected = !found_port.is_empty();
+        self.usb_connected = true;
         self.current_port_name = found_port;
 
         ctx.request_repaint_after(Duration::from_secs(1));
@@ -171,7 +174,7 @@ impl eframe::App for BindKeyApp {
                     self.current_page = Page::Home;
                 };
                 ui.add_space(10.0);
-                if (self.role_user == Role::ENROLLEUR || self.role_user == Role::ADMIN)
+                if (self.role_user == Role::ENROLLER || self.role_user == Role::ADMIN)
                     && ui.button("Enrôlment").clicked()
                 {
                     self.current_page = Page::Enrollment;
