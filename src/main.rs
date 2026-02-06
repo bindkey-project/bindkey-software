@@ -175,7 +175,7 @@ impl eframe::App for BindKeyApp {
                 };
                 ui.add_space(10.0);
                 if (self.role_user == Role::ENROLLER || self.role_user == Role::ADMIN)
-                    && ui.button("Enrôlment").clicked()
+                    && ui.button("Enrôlement").clicked()
                 {
                     self.current_page = Page::Enrollment;
                 };
