@@ -67,16 +67,16 @@ pub fn show_volumes_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
                                     let available_gb = (raw_available * 1000.0).round() / 1000.0;
 
                                     if disk.mount_point() == "/media/ouiyam/BK TEST2" {
-                                        resultat_usb = Ok(UsbResponse::Success(SuccessData::DeviceInfo { 
+                                        resultat_usb = Ok(UsbResponse::Success(SuccessData::DeviceInfo {
                                             device_name: "BK TEST2".to_string(), 
-                                            device_size: total_gb, 
-                                            device_available_size: available_gb 
+                                            device_size: total_gb,
+                                            device_available_size: available_gb
                                         }));
                                     } else if disk.mount_point() == "/media/ouiyam/BINDKEY" {
-                                        resultat_usb = Ok(UsbResponse::Success(SuccessData::DeviceInfo { 
-                                            device_name: "BINDKEY".to_string(), 
-                                            device_size: total_gb, 
-                                            device_available_size: available_gb 
+                                        resultat_usb = Ok(UsbResponse::Success(SuccessData::DeviceInfo {
+                                            device_name: "BINDKEY".to_string(),
+                                            device_size: total_gb,
+                                            device_available_size: available_gb
                                         }));
                                     }
                                 }
