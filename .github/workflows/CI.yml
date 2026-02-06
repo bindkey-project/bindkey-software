@@ -10,8 +10,8 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  test:
-    name: Test & Lint
+  build-and-release:
+    name: Test, Build & Release
     runs-on: ubuntu-latest
 
     steps:
@@ -22,18 +22,17 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y libudev-dev pkg-config libgtk-3-dev libasound2-dev libxcb-shape0-dev libxcb-xfixes0-dev
 
-    
+    - name: Restore Certificate
+      run: echo "${{ secrets.BINDKEY_CERT_BASE64 }}" | base64 -d > bindkey_cert.pem
+
     - name: Rust Cache
       uses: Swatinem/rust-cache@v2
 
     - name: Check Formatting
       run: cargo fmt --all -- --check
 
-    - name: Restore Certificate
-      run: echo "${{ secrets.BINDKEY_CERT_BASE64 }}" | base64 -d > bindkey_cert.pem
-  
     - name: Clippy (Linting)
-      run: cargo clippy 
+      run: cargo clippy -- -D warnings 
 
     - name: Install cargo-audit
       run: cargo install cargo-audit
@@ -41,9 +40,16 @@ jobs:
     - name: Run Security Audit
       run: cargo audit
 
-    - name: Build
-      run: cargo build --verbose
-
-    # 6. TESTS UNITAIRES
     - name: Run tests
       run: cargo test --verbose
+
+    - name: Build Release
+      run: cargo build --release --verbose
+
+    - name: Upload Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: bindkey-linux-executable
+
+        path: target/release/bindkey-software 
+        retention-days: 7
