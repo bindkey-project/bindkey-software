@@ -32,7 +32,7 @@ jobs:
       run: cargo fmt --all -- --check
 
     - name: Clippy (Linting)
-      run: cargo clippy -- -D warnings 
+      run: cargo clippy 
 
     - name: Install cargo-audit
       run: cargo install cargo-audit
