@@ -29,6 +29,9 @@ jobs:
     - name: Check Formatting
       run: cargo fmt --all -- --check
 
+    - name: Restore Certificate
+      run: echo "${{ secrets.BINDKEY_CERT_BASE64 }}" | base64 -d > bindkey_cert.pem
+
     - name: Clippy (Linting)
       run: cargo clippy 
 
