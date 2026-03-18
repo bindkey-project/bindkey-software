@@ -276,7 +276,7 @@ pub fn show_volumes_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
 
                         if !app.device_name.is_empty() && app.device_available_space == 0.0 && app.device_size > 0.0 {
                             ui.add_space(10.0);
-    
+
                             let has_partitions = !app.available_devices.is_empty() && !app.available_devices[0].partitions.is_empty();
 
                             if !has_partitions {
@@ -354,7 +354,7 @@ pub fn show_volumes_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
                                         let clone_api_client = app.api_client.clone();
 
                                         let clone_device_path = app.available_devices[0].path.clone();
-                                        
+
                                         tokio::spawn(async move {
     // =================================================================
     // 0. LES VARIABLES DE TEST (SIMULATION)
