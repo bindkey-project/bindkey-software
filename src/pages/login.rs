@@ -102,7 +102,8 @@ fn handle_admin_login(app: &mut BindKeyApp) {
         app.login_status = "Champs invalides".to_string();
         return;
     }
-
+    //app.role_user = Role::ADMIN;
+   // app.current_page = Page::Home;
     app.login_status = "Authentification Admin en cours...".to_string();
 
     let clone_sender = app.sender.clone();
@@ -191,6 +192,9 @@ fn handle_login(app: &mut BindKeyApp, ctx: egui::Context) {
                             Ok(map) => {
                                 if let Some(sn) = map.get("SN") {
                                     bindkey_uid = sn.clone();
+                                    let _ = clone_sender.send(ApiMessage::LoginError(
+                                        "UID récupéré, envoi au serveur...".to_string(),
+                                    ));
                                 } else {
                                     let _ = clone_sender.send(ApiMessage::LoginError(
                                         "Clé muette (SN manquant)".into(),
@@ -216,10 +220,6 @@ fn handle_login(app: &mut BindKeyApp, ctx: egui::Context) {
                 let _ = clone_sender.send(ApiMessage::LoginError("Port introuvable".to_string()));
             }
         }
-
-        let _ = clone_sender.send(ApiMessage::LoginError(
-            "UID récupéré, envoi au serveur...".to_string(),
-        ));
 
         let payload = json!( {
             "email": clone_email,

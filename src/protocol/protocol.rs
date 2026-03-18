@@ -35,6 +35,12 @@ pub enum Role {
     NONE,
 }
 
+#[derive(PartialEq)]
+pub enum VolumeTab {
+    Gestion,
+    Formatage,
+}
+
 pub enum ApiMessage {
     EnrollmentSuccess(String),
     EnrollmentUsbSuccess(UsbResponse),
@@ -120,6 +126,35 @@ pub struct VolumeCreatedInfo {
     pub encrypted_key: String,
     pub id: String,
 }
+
+#[derive(Clone, PartialEq)]
+pub struct UsbDevice {
+    pub path: String,
+    pub display_name: String,
+    pub partitions: Vec<String>,
+}
+
+#[derive(Deserialize)]
+pub struct LsblkOutput {
+    pub blockdevices: Vec<BlockDeviceJson>,
+}
+
+#[derive(Deserialize, Debug)]
+pub struct BlockDeviceJson {
+    pub name: String,
+    pub model: Option<String>,
+    pub size: u64,
+    pub tran: Option<String>,
+    pub fstype: Option<String>,
+    pub pttype: Option<String>,
+    #[serde(default)]
+    pub children: Option<Vec<BlockDeviceJson>>,
+}
+
+#[derive(Deserialize)]
+pub struct PartitionJson {
+    pub name: String,
+}
 //--------------------------STRUCT VOLUME (FIN)--------------------------------
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -138,7 +173,7 @@ pub struct User {
 
 pub fn create_secure_client() -> Result<Client, String> {
     let ip_filename = "server_ip.txt";
-    let default_ip = "172.16.253.17";
+    let default_ip = "10.10.10.187";
 
     let ip_str = if Path::new(ip_filename).exists() {
         fs::read_to_string(ip_filename)
@@ -156,7 +191,7 @@ pub fn create_secure_client() -> Result<Client, String> {
     let ip_addr =
         IpAddr::from_str(&ip_str).map_err(|e| format!("IP invalide '{}': {}", ip_str, e))?;
 
-    let addr = SocketAddr::new(ip_addr, 443);
+    let addr = SocketAddr::new(ip_addr, 31278);
 
     let cert_bytes = include_bytes!("../../bindkey_cert.pem");
 

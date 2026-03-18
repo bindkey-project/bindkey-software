@@ -5,7 +5,9 @@ use std::time::{Duration, Instant};
 mod config;
 mod pages;
 mod protocol;
-use crate::protocol::protocol::{ApiMessage, LogOut, Page, Role, User, create_secure_client};
+use crate::protocol::protocol::{
+    ApiMessage, LogOut, Page, Role, UsbDevice, User, VolumeTab, create_secure_client,
+};
 mod usb_service;
 use crate::config::AppConfig;
 use validator::Validate;
@@ -34,6 +36,7 @@ struct BindKeyApp {
     pub login_status: String,
     pub enroll_status: String,
     pub volume_status: String,
+    pub formatage_status: String,
     #[validate(email)]
     pub login_email: String,
     pub login_password: String,
@@ -46,6 +49,9 @@ struct BindKeyApp {
     pub users_list: Vec<User>,
     pub current_port_name: String,
     pub api_client: reqwest::Client,
+    pub available_devices: Vec<UsbDevice>,
+    pub selected_device: Option<UsbDevice>,
+    pub active_tab: VolumeTab,
 }
 
 impl BindKeyApp {
@@ -108,6 +114,7 @@ impl BindKeyApp {
             login_status: String::new(),
             enroll_status: String::new(),
             volume_status: String::new(),
+            formatage_status: String::new(),
             login_email: String::new(),
             login_password: String::new(),
             is_admin_mode: false,
@@ -119,6 +126,9 @@ impl BindKeyApp {
             users_list: Vec::new(),
             current_port_name: String::new(),
             api_client: client,
+            available_devices: Vec::new(),
+            selected_device: None,
+            active_tab: VolumeTab::Gestion,
         }
     }
 }
@@ -128,31 +138,30 @@ impl eframe::App for BindKeyApp {
         egui_extras::install_image_loaders(ctx);
         if self.last_usb_check.elapsed() > Duration::from_secs(1) {
             self.last_usb_check = Instant::now();
-        }
 
-        let mut found_port = String::new();
+            let mut found_port = String::new();
 
-        if let Ok(ports) = serialport::available_ports() {
-            for p in ports {
-                match p.port_type {
-                    SerialPortType::UsbPort(info) => {
-                        if info.vid == 0x10c4 && info.pid == 0xea60 {
-                            found_port = p.port_name;
-                            break;
+            if let Ok(ports) = serialport::available_ports() {
+                for p in ports {
+                    match p.port_type {
+                        SerialPortType::UsbPort(info) => {
+                            if info.vid == 0x10c4 && info.pid == 0xea60 {
+                                found_port = p.port_name;
+                                break;
+                            }
                         }
+                        _ => {}
                     }
-                    _ => {}
                 }
             }
+            self.usb_connected = true;
+            self.current_port_name = found_port;
         }
-
-        self.usb_connected = true;
-        self.current_port_name = found_port;
 
         ctx.request_repaint_after(Duration::from_secs(1));
 
         if let Ok(message) = self.receiver.try_recv() {
-            event_handler::handke_api_message(self, message);
+            event_handler::handle_api_message(self, message);
         }
 
         if self.current_page != Page::Login {
@@ -162,10 +171,10 @@ impl eframe::App for BindKeyApp {
                 ui.horizontal(|ui| {
                     if self.usb_connected {
                         ui.colored_label(egui::Color32::GREEN, "●");
-                        ui.label("Bindkey Connectée");
+                        ui.label("BindKey Connectée");
                     } else {
                         ui.colored_label(egui::Color32::RED, "●");
-                        ui.label("Aucune clé détectée");
+                        ui.label("BindKey Déconnectée");
                     }
                 });
                 ui.add_space(20.0);

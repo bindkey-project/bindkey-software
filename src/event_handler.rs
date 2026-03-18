@@ -7,7 +7,7 @@ use crate::usb_service::send_text_command;
 use crate::{BindKeyApp, pages::enrollment::hash_password_with_salt};
 use serde_json::json;
 use std::time::Duration;
-pub fn handke_api_message(app: &mut BindKeyApp, message: ApiMessage) {
+pub fn handle_api_message(app: &mut BindKeyApp, message: ApiMessage) {
     match message {
         ApiMessage::EnrollmentSuccess(texte) => {
             app.enroll_status = texte.to_string();

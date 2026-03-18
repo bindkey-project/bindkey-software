@@ -254,6 +254,7 @@ pub fn show_enrollment_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
             });
 
             egui::ScrollArea::vertical()
+            .id_salt("user_scroll_list")
             .max_height(200.0)
             .show(ui, |ui| {
                 egui::Grid::new("user_list_grid")
@@ -292,7 +293,8 @@ pub fn show_enrollment_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
                             };
                             ui.colored_label(color, role_text);
 
-                            if user.email != app.login_email {
+                            if user.email != app.login_email &&
+                                app.role_user == Role::ADMIN {
                                 if ui.button("Supprimer").on_hover_text("Supprimer cet utilisateur").clicked() {
                                let _ = app.sender.send(ApiMessage::DeleteUser(user.id));
                             }
@@ -303,8 +305,72 @@ pub fn show_enrollment_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
                 });
                 });
             });
-
             ui.add_space(20.0);
+
+                        frame_style.show(ui, |ui| {
+                ui.set_width(ui.available_width());
+
+                ui.horizontal(|ui| {
+                    ui.heading("BindKey existantes");
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if ui.button("Actualiser").clicked() {
+                            let _ = app.sender.send(ApiMessage::FetchUsers);
+                        }
+                    });
+            });
+
+            egui::ScrollArea::vertical()
+            .id_salt("bk_scroll_list")
+            .max_height(200.0)
+            .show(ui, |ui| {
+                egui::Grid::new("bk_list_grid")
+                .striped(true)
+                .spacing([20.0, 10.0])
+                .min_col_width(100.0)
+                .show(ui, |ui|{
+                    ui.strong("Serial Number");
+                    ui.strong("Public Key");
+                    ui.strong("Status");
+                    ui.strong("Actions");
+                    ui.end_row();
+
+                    if app.users_list.is_empty() {
+                        ui.label("Aucune BindKey chargée...");
+                        ui.label("-");
+                        ui.label("-");
+                        ui.label("-");
+                        ui.end_row();
+                    }else {
+                        for (index, user) in app.users_list.iter().enumerate() {
+                            ui.label(format!("{} {}", user.first_name, user.last_name));
+                            ui.label(&user.email);
+
+                            let color = match user.role {
+                                Role::ENROLLER => egui::Color32::BLUE,
+                                Role::ADMIN => egui::Color32::RED,
+                                _ => egui::Color32::GRAY,
+
+                            };
+                            let role_text = match user.role {
+                                Role::ADMIN => "Administrateur",
+                                Role::ENROLLER => "Enrôleur",
+                                Role::USER => "Utilisateur",
+                                Role::NONE => "Aucun"
+                            };
+                            ui.colored_label(color, role_text);
+
+                            if user.email != app.login_email &&
+                                app.role_user == Role::ADMIN {
+                                if ui.button("Supprimer").on_hover_text("Supprimer cet utilisateur").clicked() {
+                               let _ = app.sender.send(ApiMessage::DeleteUser(user.id));
+                            }
+                            }
+                            ui.end_row();
+                        }
+                    }
+                });
+                });
+            });
 
             if !app.enroll_status.is_empty() {
                 let color = if app.enroll_status.contains("Erreur") || app.enroll_status.contains("Refus") {
