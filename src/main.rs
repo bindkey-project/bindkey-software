@@ -50,14 +50,13 @@ struct BindKeyApp {
     pub current_port_name: String,
     pub api_client: reqwest::Client,
     pub available_devices: Vec<UsbDevice>,
-    pub selected_device: Option<UsbDevice>,
     pub active_tab: VolumeTab,
 }
 
 impl BindKeyApp {
     fn new(cc: &eframe::CreationContext<'_>) -> Self {
         let mut style = (*cc.egui_ctx.style()).clone();
-
+        
         style.text_styles.insert(
             egui::TextStyle::Body,
             egui::FontId::new(24.0, egui::FontFamily::Proportional),
@@ -127,7 +126,6 @@ impl BindKeyApp {
             current_port_name: String::new(),
             api_client: client,
             available_devices: Vec::new(),
-            selected_device: None,
             active_tab: VolumeTab::Gestion,
         }
     }
@@ -136,6 +134,8 @@ impl BindKeyApp {
 impl eframe::App for BindKeyApp {
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         egui_extras::install_image_loaders(ctx);
+        configurer_theme_bindkey(ctx);
+
         if self.last_usb_check.elapsed() > Duration::from_secs(1) {
             self.last_usb_check = Instant::now();
 
@@ -252,6 +252,38 @@ impl eframe::App for BindKeyApp {
         });
     }
 }
+
+pub fn configurer_theme_bindkey(ctx: &eframe::egui::Context) {
+    let mut visuals = eframe::egui::Visuals::dark();
+
+    visuals.window_fill = eframe::egui::Color32::from_rgb(42, 47, 56);
+    visuals.panel_fill = eframe::egui::Color32::from_rgb(32, 36, 44);
+    visuals.extreme_bg_color = eframe::egui::Color32::from_rgb(24, 28, 36);
+
+    visuals.override_text_color = Some(eframe::egui::Color32::from_rgb(210, 215, 222));
+
+    let accent_color = eframe::egui::Color32::from_rgb(0, 150, 255);
+    visuals.selection.bg_fill = accent_color;
+    visuals.hyperlink_color = accent_color;
+
+    let rounding = eframe::egui::Rounding::same(8.0);
+    visuals.window_rounding = eframe::egui::Rounding::same(12.0);
+
+    visuals.widgets.noninteractive.rounding = rounding;
+    visuals.widgets.inactive.rounding = rounding;
+    visuals.widgets.hovered.rounding = rounding;
+    visuals.widgets.active.rounding = rounding;
+
+    visuals.widgets.noninteractive.bg_stroke = eframe::egui::Stroke::new(1.0, egui::Color32::from_rgb(55, 60, 70));
+    visuals.widgets.inactive.bg_stroke = eframe::egui::Stroke::new(1.0, eframe::egui::Color32::from_rgb(65, 70, 80));
+
+
+
+    ctx.set_visuals(visuals);
+
+
+}
+
 
 #[tokio::main]
 async fn main() -> eframe::Result {

@@ -162,7 +162,7 @@ pub struct LogOut {
     pub server_token: String,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct User {
     pub id: Uuid,
     pub first_name: String,

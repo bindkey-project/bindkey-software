@@ -601,16 +601,7 @@ fn create_and_format_partition(
     volume_name: &str,
 ) -> Result<(u64, u64), String> {
     let output = Command::new("/usr/bin/pkexec")
-        .args([
-            "/usr/sbin/parted",
-            "-s",
-            "-m",
-            device_path,
-            "unit",
-            "s",
-            "print",
-            "free",
-        ])
+        .args(["/usr/sbin/parted", "-s", "-m", device_path, "unit", "s", "print", "free"])
         .output()
         .map_err(|e| format!("Erreur parted: {}", e))?;
 
@@ -627,9 +618,17 @@ fn create_and_format_partition(
                 let size_str = parts[3].trim_end_matches('s');
 
                 if let (Ok(start), Ok(size)) = (start_str.parse::<u64>(), size_str.parse::<u64>()) {
+                    
+                    // FIX 1 : Forcer l'alignement pour la mémoire Flash (secteur 2048 = 1 Mo)
+                    let mut actual_start = start;
+                    if actual_start < 2048 {
+                        actual_start = 2048; 
+                    }
+
                     if size >= target_sectors {
-                        start_sector = Some(start);
-                        end_sector = Some(start + target_sectors - 1);
+                        start_sector = Some(actual_start);
+                        // On calcule la fin en partant du nouveau point de départ
+                        end_sector = Some(actual_start + target_sectors - 1);
                         break;
                     }
                 }
@@ -642,14 +641,8 @@ fn create_and_format_partition(
 
     let status_mkpart = Command::new("/usr/bin/pkexec")
         .args([
-            "/usr/sbin/parted",
-            "-s",
-            device_path,
-            "unit",
-            "s",
-            "mkpart",
-            "primary",
-            "fat32",
+            "/usr/sbin/parted", "-s", "-a", "optimal", // On ajoute "-a optimal" par sécurité
+            device_path, "unit", "s", "mkpart", "primary", "fat32",
             &format!("{}s", start),
             &format!("{}s", end),
         ])
@@ -660,18 +653,18 @@ fn create_and_format_partition(
         return Err("parted a refusé de créer la partition.".to_string());
     }
 
-    thread::sleep(Duration::from_millis(1500));
+    // =========================================================
+    // FIX 2 : On force la synchronisation matérielle avec l'OS
+    // =========================================================
+    let _ = Command::new("/usr/sbin/partprobe").arg(device_path).output();
+    let _ = Command::new("/usr/bin/udevadm").arg("settle").output();
+    
+    // On laisse 2 secondes à la BindKey pour digérer la nouvelle partition 
+    // avant de lui envoyer mkfs dans la figure !
+    thread::sleep(Duration::from_millis(2000)); 
 
     let output_post = Command::new("/usr/bin/pkexec")
-        .args([
-            "/usr/sbin/parted",
-            "-s",
-            "-m",
-            device_path,
-            "unit",
-            "s",
-            "print",
-        ])
+        .args(["/usr/sbin/parted", "-s", "-m", device_path, "unit", "s", "print"])
         .output()
         .map_err(|e| format!("Erreur de vérification: {}", e))?;
 
@@ -698,55 +691,102 @@ fn create_and_format_partition(
     };
     let partition_path = format!("{}{}", device_path, part_suffix);
 
+    // =========================================================
+    // FIX 4 : LE BOUCLIER ANTI-AUTOMOUNTER
+    // =========================================================
+    // On force le démontage de la NOUVELLE partition au cas où 
+    // l'interface graphique de Linux aurait sauté dessus pour l'ouvrir.
+    let _ = Command::new("/usr/bin/udisksctl")
+        .args(["unmount", "-f", "-b", &partition_path])
+        .output();
+        
+    // On nettoie les vieux résidus FAT qui pourraient traîner sur ce secteur exact
+    let _ = Command::new("/usr/bin/pkexec")
+        .args(["/usr/sbin/wipefs", "-a", &partition_path])
+        .status();
+
+    // On attend une demi-seconde que la voie soit totalement libre
+    thread::sleep(Duration::from_millis(500));
+    // =========================================================
+
+    // =========================================================
+    // FIX 3 : Formatage du nom aux normes strictes FAT32
+    // =========================================================
+    // Le nom doit faire max 11 caractères et être en MAJUSCULES.
+    let safe_volume_name: String = volume_name.to_uppercase().chars().take(11).collect();
+
     let status_format = Command::new("/usr/bin/pkexec")
         .args([
             "/usr/bin/mkfs.vfat",
-            "-I",
-            "-F",
-            "32",
-            "-n",
-            volume_name,
+            "-I", "-F", "32",
+            "-n", &safe_volume_name, 
             &partition_path,
         ])
         .status()
         .map_err(|e| format!("Erreur mkfs: {}", e))?;
 
     if status_format.success() {
+        // On remet un petit coup de sync à la fin pour être sûr que tout est écrit
+        let _ = Command::new("sync").status();
         Ok((start, end))
     } else {
-        Err(format!("Le formatage de {} a échoué.", partition_path))
+        Err(format!("Le formatage de {} a échoué (IO Error possible).", partition_path))
     }
 }
 
 fn force_format(device_path: &str, partitions: &Vec<String>) -> Result<(), String> {
-    // 1. Démonter le disque principal
-    let _ = Command::new("/usr/bin/udisksctl")
-        .arg("unmount")
-        .arg("-b")
-        .arg(device_path)
-        .output();
-
-    // 2. Démonter toutes les partitions existantes (sda1, sda2...)
+    // 1. Démonter toutes les partitions existantes (sda1, sda2...)
     for part in partitions {
         let _ = Command::new("/usr/bin/udisksctl")
-            .arg("unmount")
-            .arg("-b")
-            .arg(part)
+            .args(["unmount", "-f", "-b", part]) // On ajoute -f (force)
             .output();
     }
 
-    // Petite pause pour laisser le temps à l'OS de libérer les fichiers
-    thread::sleep(Duration::from_secs(1));
+    // Démonter le disque principal au cas où
+    let _ = Command::new("/usr/bin/udisksctl")
+        .args(["unmount", "-f", "-b", device_path])
+        .output();
 
-    // 3. Créer une nouvelle table de partition vide (Wipe total)
+    // Pause pour laisser l'OS libérer les accès
+    thread::sleep(Duration::from_millis(800));
+
+    // 2. L'ARME SECRÈTE : wipefs
+    // On efface toutes les signatures (FS, partitions)
+    let _ = Command::new("/usr/bin/pkexec")
+        .args(["/usr/sbin/wipefs", "-a", device_path])
+        .status();
+
+    // =========================================================
+    // LA CORRECTION DE L'EMBOUTEILLAGE :
+    // 1. On dit au programme d'attendre que Linux ait fini de réagir au wipefs
+    let _ = Command::new("/usr/bin/udevadm")
+        .arg("settle")
+        .output();
+
+    // 2. On ajoute une seconde de sécurité pour la mémoire de la puce BindKey
+    thread::sleep(Duration::from_millis(1500));
+    // =========================================================
+
+    // 3. Créer une nouvelle table de partition vide (MBR/dos)
     let status = Command::new("/usr/bin/pkexec")
         .args(["/usr/sbin/parted", "-s", device_path, "mklabel", "msdos"])
         .status()
-        .map_err(|e| format!("Impossible de lancer pkexec: {}", e))?;
+        .map_err(|e| format!("Impossible de lancer parted: {}", e))?;
+
+    // 4. FORCER LA MISE À JOUR DU KERNEL
+    // partprobe dit à l'OS "Oublie l'ancien cache, relis la clé physiquement !"
+    let _ = Command::new("/usr/sbin/partprobe")
+        .arg(device_path)
+        .output();
+        
+    // udevadm settle dit à l'OS "Attends d'avoir fini de traiter les changements"
+    let _ = Command::new("/usr/bin/udevadm")
+        .arg("settle")
+        .output();
 
     if status.success() {
         Ok(())
     } else {
-        Err("La réinitialisation a échoué ou a été annulée par l'utilisateur".to_string())
+        Err("Linux a refusé d'écrire la table de partition (Disque verrouillé).".to_string())
     }
 }
