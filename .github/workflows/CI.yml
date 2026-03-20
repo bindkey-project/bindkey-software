@@ -15,6 +15,13 @@ jobs:
     name: Test, Build & Release
     runs-on: ubuntu-latest
 
+    # ==========================================
+    # L'AJOUT CRUCIAL EST ICI 👇
+    # ==========================================
+    permissions:
+      contents: write 
+    # ==========================================
+
     steps:
     - uses: actions/checkout@v4
     
