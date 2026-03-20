@@ -62,6 +62,11 @@ jobs:
         
         tar -czvf bindkey-linux-package.tar.gz -C release_package .
 
+    - name: Sign Release Package
+      env:
+        MINISIGN_KEY: ${{ secrets.MINISIGN_PRIVATE_KEY }}
+      run: |
+
     - name: Upload Artifact
       uses: actions/upload-artifact@v4
       with:
@@ -73,7 +78,9 @@ jobs:
       uses: softprops/action-gh-release@v2
       if: startsWith(github.ref, 'refs/tags/v') 
       with:
-        files: bindkey-linux-package.tar.gz
+        files: |
+          bindkey-linux-package.tar.gz
+          bindkey-linux-package.tar.gz.minisig
         generate_release_notes: true 
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
