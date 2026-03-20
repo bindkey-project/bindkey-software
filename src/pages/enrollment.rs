@@ -19,8 +19,8 @@ pub fn show_enrollment_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
         });
 
         let card_frame = egui::Frame::none()
-            .fill(ui.visuals().window_fill()) 
-            .rounding(12.0) 
+            .fill(ui.visuals().window_fill())
+            .rounding(12.0)
             .inner_margin(20.0) // On garde l'espace à l'intérieur
             // On a supprimé le outer_margin pour éviter les collisions !
             .shadow(eframe::egui::epaint::Shadow {
@@ -126,7 +126,7 @@ pub fn show_enrollment_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
                                 .weak()
                             );
                         }
-                        
+
                         if !app.enroll_status.is_empty() {
                             ui.add_space(10.0);
                             let color = if app.enroll_status.contains("Erreur") || app.enroll_status.contains("Refus") {
@@ -160,7 +160,7 @@ pub fn show_enrollment_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
                     // Si l'email d'un utilisateur est trop long, ça ne cassera pas la colonne.
                     egui::ScrollArea::both()
                         .id_salt("user_scroll")
-                        .max_height(200.0) 
+                        .max_height(200.0)
                         .show(ui, |ui| {
                             egui::Grid::new("user_list_grid")
                                 .striped(true)

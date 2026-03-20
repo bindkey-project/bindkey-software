@@ -56,7 +56,7 @@ struct BindKeyApp {
 impl BindKeyApp {
     fn new(cc: &eframe::CreationContext<'_>) -> Self {
         let mut style = (*cc.egui_ctx.style()).clone();
-        
+
         style.text_styles.insert(
             egui::TextStyle::Body,
             egui::FontId::new(24.0, egui::FontFamily::Proportional),
@@ -274,16 +274,13 @@ pub fn configurer_theme_bindkey(ctx: &eframe::egui::Context) {
     visuals.widgets.hovered.rounding = rounding;
     visuals.widgets.active.rounding = rounding;
 
-    visuals.widgets.noninteractive.bg_stroke = eframe::egui::Stroke::new(1.0, egui::Color32::from_rgb(55, 60, 70));
-    visuals.widgets.inactive.bg_stroke = eframe::egui::Stroke::new(1.0, eframe::egui::Color32::from_rgb(65, 70, 80));
-
-
+    visuals.widgets.noninteractive.bg_stroke =
+        eframe::egui::Stroke::new(1.0, egui::Color32::from_rgb(55, 60, 70));
+    visuals.widgets.inactive.bg_stroke =
+        eframe::egui::Stroke::new(1.0, eframe::egui::Color32::from_rgb(65, 70, 80));
 
     ctx.set_visuals(visuals);
-
-
 }
-
 
 #[tokio::main]
 async fn main() -> eframe::Result {

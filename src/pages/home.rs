@@ -1,4 +1,7 @@
-use crate::{BindKeyApp, protocol::protocol::{Page, VolumeTab}};
+use crate::{
+    BindKeyApp,
+    protocol::protocol::{Page, VolumeTab},
+};
 use eframe::egui;
 
 pub fn show_home_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
@@ -85,7 +88,7 @@ pub fn show_home_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
             let btn_enroll = egui::Button::new("Enrôler une nouvelle clé")
                 .min_size(egui::vec2(ui.available_width(), 40.0));
             if ui.add(btn_enroll).clicked() {
-                app.current_page = Page::Enrollment; 
+                app.current_page = Page::Enrollment;
             }
         });
     });
