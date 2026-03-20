@@ -12,6 +12,7 @@ mod usb_service;
 use crate::config::AppConfig;
 use validator::Validate;
 mod event_handler;
+pub const UPDATE_PUBLIC_KEY: &str = "RWSJeF+oi2P6KH0F+FjnPr3NuWxaRv2DNisbPUBQpq2E6oB87JFQAqcX";
 
 #[derive(Validate)]
 struct BindKeyApp {
