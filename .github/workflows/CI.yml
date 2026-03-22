@@ -62,10 +62,19 @@ jobs:
         
         tar -czvf bindkey-linux-package.tar.gz -C release_package .
 
+    # =========================================================
+    # SIGNATURE CRYPTOGRAPHIQUE AVEC ZIPSIGN
+    # =========================================================
     - name: Sign Release Package
       env:
-        MINISIGN_KEY: ${{ secrets.MINISIGN_PRIVATE_KEY }}
+        ZIPSIGN_KEY: ${{ secrets.ZIPSIGN_PRIVATE_KEY }}
       run: |
+        cargo install zipsign
+        echo "$ZIPSIGN_KEY" | base64 -d > update.key
+        
+        # Zipsign va injecter la signature directement dans l'archive
+        zipsign sign tar update.key bindkey-linux-package.tar.gz
+        rm update.key
 
     - name: Upload Artifact
       uses: actions/upload-artifact@v4
@@ -78,8 +87,7 @@ jobs:
       uses: softprops/action-gh-release@v2
       if: startsWith(github.ref, 'refs/tags/v') 
       with:
-        # L'astérisque attrape automatiquement TOUT ce qui commence par ce nom
-        files: bindkey-linux-package.tar.gz*
+        files: bindkey-linux-package.tar.gz
         generate_release_notes: true 
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
