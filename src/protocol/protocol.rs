@@ -61,6 +61,7 @@ pub enum ApiMessage {
     DeleteUserError(String),
     DeleteUser(Uuid),
     UserDeleted,
+    UpdateStatus(String),
 }
 
 //--------------------------ÉNUMÉRATION (FIN)----------------------------

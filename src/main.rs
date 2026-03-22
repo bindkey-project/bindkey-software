@@ -52,6 +52,7 @@ struct BindKeyApp {
     pub api_client: reqwest::Client,
     pub available_devices: Vec<UsbDevice>,
     pub active_tab: VolumeTab,
+    pub update_status: String,
 }
 
 impl BindKeyApp {
@@ -128,6 +129,7 @@ impl BindKeyApp {
             api_client: client,
             available_devices: Vec::new(),
             active_tab: VolumeTab::Gestion,
+            update_status: String::new(),
         }
     }
 }
