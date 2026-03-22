@@ -78,9 +78,8 @@ jobs:
       uses: softprops/action-gh-release@v2
       if: startsWith(github.ref, 'refs/tags/v') 
       with:
-        files: |
-          bindkey-linux-package.tar.gz
-          bindkey-linux-package.tar.gz.minisig
+        # L'astérisque attrape automatiquement TOUT ce qui commence par ce nom
+        files: bindkey-linux-package.tar.gz*
         generate_release_notes: true 
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
