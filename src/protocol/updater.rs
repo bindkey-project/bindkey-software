@@ -10,15 +10,21 @@ pub fn update_application() -> Result<String, Box<dyn std::error::Error>> {
     let status = self_update::backends::github::Update::configure()
         .repo_owner("bindkey-project") // Ton compte ou organisation GitHub
         .repo_name("bindkey-software") // Le nom exact de ton dépôt
-        .bin_name("bindkey-client")    // Le nom de l'exécutable À L'INTÉRIEUR du .tar.gz
+        .bin_name("bindkey-client") // Le nom de l'exécutable À L'INTÉRIEUR du .tar.gz
         .show_download_progress(true)
         .current_version(cargo_crate_version!()) // Lit la version actuelle dans ton Cargo.toml
         .build()?
         .update()?; // C'est ici que la magie opère !
 
     if status.updated() {
-        Ok(format!("Mise à jour réussie ! L'application est passée à la version {}", status.version()))
+        Ok(format!(
+            "Mise à jour réussie ! L'application est passée à la version {}",
+            status.version()
+        ))
     } else {
-        Ok(format!("L'application est déjà à jour (Version {}).", status.version()))
+        Ok(format!(
+            "L'application est déjà à jour (Version {}).",
+            status.version()
+        ))
     }
 }

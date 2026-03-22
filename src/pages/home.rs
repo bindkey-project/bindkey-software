@@ -1,7 +1,7 @@
 use crate::{
     BindKeyApp,
     protocol::protocol::{ApiMessage, Page, VolumeTab},
-    protocol::updater::{UPDATE_PUBLIC_KEY, update_application}
+    protocol::updater::{UPDATE_PUBLIC_KEY, update_application},
 };
 use eframe::egui;
 
@@ -122,10 +122,10 @@ pub fn show_home_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
         // CORRECTION 1 : La bonne syntaxe pour dimensionner un bouton
         if ui.add(egui::Button::new("🔄 Rechercher une mise à jour").min_size(egui::vec2(200.0, 30.0))).clicked() {
             let sender_clone = app.sender.clone();
-            
+
             std::thread::spawn(move || {
                 let _ = sender_clone.send(ApiMessage::UpdateStatus("Recherche et vérification en cours...".to_string()));
-                
+
                 // 1. On aspire la VRAIE clé publique Zipsign directement depuis le fichier !
                 // (Vérifie que le chemin pointe bien vers le update.pub de Zipsign)
                 let pub_key_bytes = include_bytes!("../../update.pub"); 

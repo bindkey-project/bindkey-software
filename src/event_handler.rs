@@ -476,9 +476,9 @@ pub fn handle_api_message(app: &mut BindKeyApp, message: ApiMessage) {
         }
         ApiMessage::LogOutError(e) => {
             println!("{}", e);
-        },
+        }
         ApiMessage::UpdateStatus(texte) => {
-                    app.update_status = texte;
-                }
+            app.update_status = texte;
+        }
     }
 }
