@@ -70,9 +70,15 @@ jobs:
         ZIPSIGN_KEY: ${{ secrets.ZIPSIGN_PRIVATE_KEY }}
       run: |
         cargo install zipsign
-        echo "$ZIPSIGN_KEY" | base64 -d > update.key
         
-        # Zipsign va injecter la signature directement dans l'archive
+        # On utilise printf au lieu de echo pour éviter les sauts de ligne invisibles !
+        printf "%s" "$ZIPSIGN_KEY" | base64 -d > update.key
+        
+        # Test de sécurité : Ça doit afficher exactement 64 (la taille d'une clé Ed25519)
+        echo "Taille de la clé décodée :"
+        wc -c update.key
+        
+        # Signature
         zipsign sign tar update.key bindkey-linux-package.tar.gz
         rm update.key
 
