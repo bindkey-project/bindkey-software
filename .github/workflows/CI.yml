@@ -71,15 +71,12 @@ jobs:
       run: |
         cargo install zipsign
         
-        # On utilise xxd pour faire le chemin inverse (Hexadécimal -> Binaire parfait)
+        # Décodage Hexadécimal (Parfaitement fonctionnel !)
         echo "$ZIPSIGN_KEY" | xxd -r -p > update.key
         
-        # LE TEST ULTIME : Cette empreinte DOIT être identique à celle de ton PC
-        echo "Empreinte SHA256 de la clé sur le serveur :"
-        sha256sum update.key
+        # Signature (DANS LE BON ORDRE : Archive en premier, Clé en second)
+        zipsign sign tar bindkey-linux-package.tar.gz update.key
         
-        # Signature
-        zipsign sign tar update.key bindkey-linux-package.tar.gz
         rm update.key
 
     - name: Upload Artifact
