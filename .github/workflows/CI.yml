@@ -71,12 +71,12 @@ jobs:
       run: |
         cargo install zipsign
         
-        # On utilise printf au lieu de echo pour éviter les sauts de ligne invisibles !
-        printf "%s" "$ZIPSIGN_KEY" | base64 -d > update.key
+        # On utilise xxd pour faire le chemin inverse (Hexadécimal -> Binaire parfait)
+        echo "$ZIPSIGN_KEY" | xxd -r -p > update.key
         
-        # Test de sécurité : Ça doit afficher exactement 64 (la taille d'une clé Ed25519)
-        echo "Taille de la clé décodée :"
-        wc -c update.key
+        # LE TEST ULTIME : Cette empreinte DOIT être identique à celle de ton PC
+        echo "Empreinte SHA256 de la clé sur le serveur :"
+        sha256sum update.key
         
         # Signature
         zipsign sign tar update.key bindkey-linux-package.tar.gz
