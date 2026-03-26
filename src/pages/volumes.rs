@@ -725,8 +725,7 @@ fn create_and_format_partition(
 
     let script_formatage = format!(
         "/usr/sbin/wipefs -a {0} && /usr/sbin/mkfs.vfat -I -F 32 -n '{1}' {0} && sync",
-        partition_path, 
-        safe_volume_name
+        partition_path, safe_volume_name
     );
 
     let status_format = Command::new("/usr/bin/pkexec")
