@@ -141,7 +141,7 @@ pub fn show_home_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
                     .target("linux-package")
                     .show_download_progress(true)
                     .current_version(env!("CARGO_PKG_VERSION"))
-                    .verifying_keys([raw_key]) 
+                    .verifying_keys([raw_key])
                     .build();
 
                 match update_result {
