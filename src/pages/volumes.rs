@@ -336,7 +336,7 @@ pub fn show_volumes_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
                                         .min_size(egui::vec2(250.0, 45.0));
 
                                     if ui.add(btn_create).clicked() {
-                                        let bypass_usb = true;
+                                        let bypass_usb = false;
 
                                         app.volume_status = if bypass_usb {
                                             "SIMULATION : Init Serveur...".to_string()
@@ -359,8 +359,8 @@ pub fn show_volumes_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
     // =================================================================
     // 0. LES VARIABLES DE TEST (SIMULATION)
     // =================================================================
-                                            let bypass_server = true;
-                                            let bypass_usb = true;
+                                            let bypass_server = false;
+                                            let bypass_usb = false;
 
     // =================================================================
     // 1. VALIDATION SERVEUR (API)
@@ -422,7 +422,7 @@ pub fn show_volumes_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
                                                 } else {
         // --- MODE RÉEL USB (INIT) ---
                                                     if !clone_port_name.is_empty() {
-                                                        match serialport::new(&clone_port_name, 115200).timeout(std::time::Duration::from_secs(2)).open() {
+                                                        match serialport::new(&clone_port_name, 115200).timeout(std::time::Duration::from_secs(60)).open() {
                                                             Ok(mut port) => {
                                                                 let _ = port.write_data_terminal_ready(true);
                                                                 let _ = port.write_request_to_send(true);
@@ -717,50 +717,28 @@ fn create_and_format_partition(
     };
     let partition_path = format!("{}{}", device_path, part_suffix);
 
-    // =========================================================
-    // FIX 4 : LE BOUCLIER ANTI-AUTOMOUNTER
-    // =========================================================
-    // On force le démontage de la NOUVELLE partition au cas où
-    // l'interface graphique de Linux aurait sauté dessus pour l'ouvrir.
     let _ = Command::new("/usr/bin/udisksctl")
         .args(["unmount", "-f", "-b", &partition_path])
         .output();
 
-    // On nettoie les vieux résidus FAT qui pourraient traîner sur ce secteur exact
-    let _ = Command::new("/usr/bin/pkexec")
-        .args(["/usr/sbin/wipefs", "-a", &partition_path])
-        .status();
-
-    // On attend une demi-seconde que la voie soit totalement libre
-    thread::sleep(Duration::from_millis(500));
-    // =========================================================
-
-    // =========================================================
-    // FIX 3 : Formatage du nom aux normes strictes FAT32
-    // =========================================================
-    // Le nom doit faire max 11 caractères et être en MAJUSCULES.
     let safe_volume_name: String = volume_name.to_uppercase().chars().take(11).collect();
 
+    let script_formatage = format!(
+        "/usr/sbin/wipefs -a {0} && /usr/sbin/mkfs.vfat -I -F 32 -n '{1}' {0} && sync",
+        partition_path, 
+        safe_volume_name
+    );
+
     let status_format = Command::new("/usr/bin/pkexec")
-        .args([
-            "/usr/bin/mkfs.vfat",
-            "-I",
-            "-F",
-            "32",
-            "-n",
-            &safe_volume_name,
-            &partition_path,
-        ])
+        .args(["bash", "-c", &script_formatage])
         .status()
-        .map_err(|e| format!("Erreur mkfs: {}", e))?;
+        .map_err(|e| format!("Erreur lors de l'exécution du bloc de formatage: {}", e))?;
 
     if status_format.success() {
-        // On remet un petit coup de sync à la fin pour être sûr que tout est écrit
-        let _ = Command::new("sync").status();
         Ok((start, end))
     } else {
         Err(format!(
-            "Le formatage de {} a échoué (IO Error possible).",
+            "Le formatage de {} a échoué (IO Error ou annulation de l'utilisateur).",
             partition_path
         ))
     }

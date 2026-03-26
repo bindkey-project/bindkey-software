@@ -19,7 +19,7 @@ pub fn send_text_command(
 
     let mut results = HashMap::new();
     let start = Instant::now();
-    let timeout = Duration::from_secs(3);
+    let timeout = Duration::from_secs(60);
 
     let mut buffer: Vec<u8> = Vec::new();
     let mut byte_buf = [0u8; 1];

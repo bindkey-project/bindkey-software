@@ -114,11 +114,89 @@ pub fn show_enrollment_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
                     ui.vertical_centered(|ui| {
                         if formulaire_valide {
                             if ui.add(egui::Button::new("➕ Enrôler le nouvel utilisateur").min_size(egui::vec2(ui.available_width(), 40.0))).clicked() {
-                                // Ton code Tokio ici...
+                                let sender = app.sender.clone();
+                                let port_name = app.current_port_name.clone();
+
+                                tokio::spawn(async move {
+                                    // On utilise EnrollmentError comme "hack" pour afficher un message de statut d'attente
+                                    let _ = sender.send(ApiMessage::EnrollmentError("Attente de la clé USB...".to_string()));
+
+                                    if port_name.is_empty() {
+                                        let _ = sender.send(ApiMessage::EnrollmentError("Erreur : Aucune clé détectée".to_string()));
+                                        return;
+                                    }
+
+                                    match serialport::new(&port_name, 115200).timeout(std::time::Duration::from_secs(45)).open() {
+                                        Ok(mut port) => {
+                                            let _ = port.write_data_terminal_ready(true);
+                                            std::thread::sleep(std::time::Duration::from_millis(100));
+
+                                            let _ = sender.send(ApiMessage::EnrollmentError("👆 Veuillez placer votre doigt 3 fois sur le capteur...".to_string()));
+                                            let cmd = "enroll".to_string(); 
+
+                                            match crate::usb_service::send_text_command(&mut *port, &cmd) {
+                                                Ok(map) => {
+                                                    // On cherche l'UID et la clé publique renvoyés par la BindKey
+                                                    if let (Some(uid), Some(pk)) = (map.get("SN"), map.get("PUB")) {
+                                                        let data = UsbResponse::Success(SuccessData::EnrollmentInfo {
+                                                            uid: uid.clone(),
+                                                            public_key: pk.clone(),
+                                                        });
+                                                        // On envoie le succès à l'Event Handler qui fera l'appel API !
+                                                        let _ = sender.send(ApiMessage::EnrollmentUsbSuccess(data));
+                                                    } else {
+                                                        let _ = sender.send(ApiMessage::EnrollmentError("Données UID ou PK manquantes depuis la clé".to_string()));
+                                                    }
+                                                }
+                                                Err(e) => {
+                                                    let _ = sender.send(ApiMessage::EnrollmentError(format!("Erreur communication USB : {}", e)));
+                                                }
+                                            }
+                                        }
+                                        Err(e) => {
+                                            let _ = sender.send(ApiMessage::EnrollmentError(format!("Impossible d'ouvrir le port : {}", e)));
+                                        }
+                                    }
+                                });
                             }
+
                         } else if modif_valid {
                             if ui.add(egui::Button::new("✏️ Modifier les droits (Email + Rôle)").min_size(egui::vec2(ui.available_width(), 40.0))).clicked() {
-                                // Ton code Tokio ici...
+                                let sender = app.sender.clone();
+                                let port_name = app.current_port_name.clone();
+
+                                tokio::spawn(async move {
+                                    let _ = sender.send(ApiMessage::EnrollmentError("Modification sur la clé USB en cours...".to_string()));
+
+                                    if port_name.is_empty() {
+                                        let _ = sender.send(ApiMessage::EnrollmentError("Erreur : Aucune clé détectée".to_string()));
+                                        return;
+                                    }
+
+                                    match serialport::new(&port_name, 115200).timeout(std::time::Duration::from_secs(15)).open() {
+                                        Ok(mut port) => {
+                                            let _ = port.write_data_terminal_ready(true);
+                                            std::thread::sleep(std::time::Duration::from_millis(100));
+
+                                            // /!\ IMPORTANT : Mets ici la vraie commande de modif /!\
+                                            let cmd = "cmd_modify".to_string(); 
+
+                                            match crate::usb_service::send_text_command(&mut *port, &cmd) {
+                                                Ok(_) => {
+                                                    // La clé a dit OK, on lance la requête API
+                                                    let data = UsbResponse::Success(SuccessData::Ack);
+                                                    let _ = sender.send(ApiMessage::ModificationUsbSuccess(data));
+                                                }
+                                                Err(e) => {
+                                                    let _ = sender.send(ApiMessage::EnrollmentError(format!("Erreur communication USB : {}", e)));
+                                                }
+                                            }
+                                        }
+                                        Err(e) => {
+                                            let _ = sender.send(ApiMessage::EnrollmentError(format!("Impossible d'ouvrir le port : {}", e)));
+                                        }
+                                    }
+                                });
                             }
                         } else {
                             ui.label(egui::RichText::new("Remplissez tous les champs pour enrôler, ou seulement Email + Rôle pour modifier.")
