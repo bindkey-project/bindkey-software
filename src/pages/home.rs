@@ -130,9 +130,9 @@ pub fn show_home_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
                 let _ = sender_clone.send(ApiMessage::UpdateStatus("Recherche et vérification en cours...".to_string()));
 
                 let raw_key: [u8; 32] = [
-                    59, 133, 100, 221, 217, 186, 145, 232, 
-                    139, 225, 221, 2, 244, 91, 22, 133, 
-                    30, 73, 147, 234, 246, 224, 247, 72, 
+                    59, 133, 100, 221, 217, 186, 145, 232,
+                    139, 225, 221, 2, 244, 91, 22, 133,
+                    30, 73, 147, 234, 246, 224, 247, 72,
                     148, 104, 133, 194, 230, 13, 221, 57
                 ];
 
