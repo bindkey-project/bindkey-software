@@ -6,7 +6,10 @@ use crate::{
 use eframe::egui;
 
 pub fn show_home_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
-    let card_frame = egui::Frame::none()
+    egui::ScrollArea::vertical()
+        .auto_shrink([false, false])
+        .show(ui, |ui| {
+            let card_frame = egui::Frame::none()
         .fill(ui.visuals().window_fill()) // <-- Correction ici : () ajoutées
         .rounding(15.0)
         .stroke(ui.visuals().window_stroke())
@@ -126,23 +129,19 @@ pub fn show_home_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
             std::thread::spawn(move || {
                 let _ = sender_clone.send(ApiMessage::UpdateStatus("Recherche et vérification en cours...".to_string()));
 
-                // 1. On aspire la VRAIE clé publique Zipsign directement depuis le fichier !
-                // (Vérifie que le chemin pointe bien vers le update.pub de Zipsign)
                 let pub_key_bytes = include_bytes!("../../update.pub"); 
 
-                // 2. On la met dans le moule exact de 32 octets attendu par le compilateur
                 let mut raw_key = [0u8; 32];
-                // Par sécurité, on prend exactement les 32 premiers octets (au cas où il y aurait un saut de ligne)
                 raw_key.copy_from_slice(&pub_key_bytes[..32]);
 
-                // 3. On lance le moteur de mise à jour !
                 let update_result = self_update::backends::github::Update::configure()
                     .repo_owner("bindkey-project")
                     .repo_name("bindkey-software")
-                    .bin_name("bindkey-client")
+                    .bin_name("./bindkey-client")
+                    .target("linux-package")
                     .show_download_progress(true)
                     .current_version(env!("CARGO_PKG_VERSION"))
-                    .verifying_keys([raw_key]) // <- Syntaxe parfaite et clé parfaite !
+                    .verifying_keys([raw_key]) 
                     .build();
 
                 match update_result {
@@ -150,7 +149,7 @@ pub fn show_home_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
                         match updater.update() {
                             Ok(status) => {
                                 if status.updated() {
-                                    let _ = sender_clone.send(ApiMessage::UpdateStatus(format!("✅ Succès ! Mise à jour installée (v{}). Veuillez relancer l'application.", status.version())));
+                                    let _ = sender_clone.send(ApiMessage::UpdateStatus(format!("Succès ! Mise à jour installée (v{}). Veuillez relancer l'application.", status.version())));
                                 } else {
                                     let _ = sender_clone.send(ApiMessage::UpdateStatus("L'application est déjà à jour !".to_string()));
                                 }
@@ -167,12 +166,19 @@ pub fn show_home_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
             });
         }
 
+        card_frame.show(ui, |ui| {
+            ui.heading("Test Ajout Mise à Jour");
+            ui.separator();
+            ui.add_space(10.0);
+        });
+
         if !app.update_status.is_empty() {
             ui.add_space(10.0);
             let color = if app.update_status.contains("❌") { egui::Color32::RED } else { egui::Color32::GREEN };
             ui.colored_label(color, &app.update_status);
         }
     });
+        });
 }
 
 /*
