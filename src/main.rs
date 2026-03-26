@@ -173,10 +173,10 @@ impl eframe::App for BindKeyApp {
 
                 ui.horizontal(|ui| {
                     if self.usb_connected {
-                        ui.colored_label(egui::Color32::GREEN, "●");
+                        ui.colored_label(egui::Color32::GREEN, "BindKey Connectée");
                         ui.label("BindKey Connectée");
                     } else {
-                        ui.colored_label(egui::Color32::RED, "●");
+                        ui.colored_label(egui::Color32::RED, "BindKey Déconnectée");
                         ui.label("BindKey Déconnectée");
                     }
                 });
@@ -298,4 +298,42 @@ async fn main() -> eframe::Result {
         native_options,
         Box::new(|cc| Ok(Box::new(BindKeyApp::new(cc)))),
     )
+}
+#[test]
+fn extraction_ultime_zipsign() {
+    let pub_key_bytes = include_bytes!("../update.pub");
+    let content = String::from_utf8_lossy(pub_key_bytes);
+    
+    // 1. On sépare tout le texte par les espaces, et on garde le plus long morceau.
+    // Le Base64 sera obligatoirement le mot le plus long du fichier !
+    let mut mot_le_plus_long = "";
+    for mot in content.split_whitespace() {
+        if mot.len() > mot_le_plus_long.len() {
+            mot_le_plus_long = mot;
+        }
+    }
+    
+    // 2. Par sécurité, on enlève un éventuel point-virgule qui serait collé à la clé
+    let b64_propre = mot_le_plus_long.trim_start_matches(';');
+    
+    // 3. On décode !
+    use base64::{Engine as _, engine::general_purpose};
+    let decoded = general_purpose::STANDARD.decode(b64_propre)
+        .unwrap_or_else(|_| general_purpose::STANDARD_NO_PAD.decode(b64_propre).expect("C'est toujours pas du Base64 valide !"));
+        
+    // 4. On récupère les 32 derniers octets
+    let vraie_cle = if decoded.len() >= 32 {
+        &decoded[decoded.len() - 32..]
+    } else {
+        panic!("La clé est trop courte ({} octets) !", decoded.len());
+    };
+    
+    let mut raw_key = [0u8; 32];
+    raw_key.copy_from_slice(vraie_cle);
+    
+    // 5. La libération
+    println!("\n==================================================");
+    println!("✅ VICTOIRE TOTALE ! Voici ton tableau à copier-coller :");
+    println!("{:?}", raw_key);
+    println!("==================================================\n");
 }

@@ -129,10 +129,12 @@ pub fn show_home_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
             std::thread::spawn(move || {
                 let _ = sender_clone.send(ApiMessage::UpdateStatus("Recherche et vérification en cours...".to_string()));
 
-                let pub_key_bytes = include_bytes!("../../update.pub"); 
-
-                let mut raw_key = [0u8; 32];
-                raw_key.copy_from_slice(&pub_key_bytes[..32]);
+                let raw_key: [u8; 32] = [
+                    59, 133, 100, 221, 217, 186, 145, 232, 
+                    139, 225, 221, 2, 244, 91, 22, 133, 
+                    30, 73, 147, 234, 246, 224, 247, 72, 
+                    148, 104, 133, 194, 230, 13, 221, 57
+                ];
 
                 let update_result = self_update::backends::github::Update::configure()
                     .repo_owner("bindkey-project")
