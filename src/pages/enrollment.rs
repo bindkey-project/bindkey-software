@@ -254,7 +254,7 @@ pub fn show_enrollment_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
                             ui.add_space(50.0);
                         });
                     });
-                }            
+                }
             });
         });
         ui.centered_and_justified( |ui| {
