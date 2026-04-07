@@ -37,6 +37,7 @@ pub enum Role {
 
 #[derive(PartialEq)]
 pub enum VolumeTab {
+    Dashboard,
     Gestion,
     Formatage,
 }
@@ -62,6 +63,9 @@ pub enum ApiMessage {
     DeleteUser(Uuid),
     UserDeleted,
     UpdateStatus(String),
+    SearchUserByEmail(String),
+    UserFound(User, Option<BindKeyInfo>),
+    SearchUserError(String),
 }
 
 //--------------------------ÉNUMÉRATION (FIN)----------------------------
@@ -119,6 +123,15 @@ pub struct VolumeInitResponse {
     pub exists: bool,
 }
 
+#[derive(Clone, Debug)]
+pub struct VolumeInfo {
+    pub name: String,
+    pub device_path: String,
+    pub total_space_gb: f64,
+    pub is_mounted: bool,
+    pub mount_point: Option<String>,
+}
+
 #[derive(Serialize, Deserialize, Debug)]
 pub struct VolumeCreatedInfo {
     pub disk_id: String,
@@ -148,6 +161,8 @@ pub struct BlockDeviceJson {
     pub tran: Option<String>,
     pub fstype: Option<String>,
     pub pttype: Option<String>,
+    pub mountpoint: Option<String>,
+    pub label: Option<String>,
     #[serde(default)]
     pub children: Option<Vec<BlockDeviceJson>>,
 }
@@ -170,6 +185,12 @@ pub struct User {
     pub last_name: String,
     pub email: String,
     pub role: Role,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct BindKeyInfo {
+    pub serial_number: String,
+    pub status: StatusBindkey,
 }
 
 pub fn create_secure_client() -> Result<Client, String> {

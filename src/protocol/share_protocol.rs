@@ -37,6 +37,8 @@ pub enum SuccessData {
     VolumeCreated {
         encrypted_key: String,
         volume_id: String,
+        device_path: String,
+        partition_number: String,
     },
 
     Ack,

@@ -204,16 +204,6 @@ pub fn show_enrollment_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
                                 .weak()
                             );
                         }
-
-                        if !app.enroll_status.is_empty() {
-                            ui.add_space(10.0);
-                            let color = if app.enroll_status.contains("Erreur") || app.enroll_status.contains("Refus") {
-                                egui::Color32::from_rgb(255, 100, 100)
-                            } else {
-                                egui::Color32::from_rgb(100, 200, 255)
-                            };
-                            ui.colored_label(color, &app.enroll_status);
-                        }
                     });
                 });
             });
@@ -222,117 +212,62 @@ pub fn show_enrollment_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
             // COLONNE DROITE : LES LISTES (Utilisateurs et BindKeys)
             // =========================================================
             cols[1].vertical(|ui| {
+            // 🛡️ VÉRIFICATION DU RÔLE ICI
+            if app.role_user == Role::ADMIN {
+
+                // =========================================================
+                // VUE ADMIN : On affiche le moteur de recherche
+                // =========================================================
                 card_frame.show(ui, |ui| {
-                    ui.horizontal(|ui| {
-                        ui.heading("📋 Utilisateurs");
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if ui.button("🔄 Actualiser").clicked() {
-                                let _ = app.sender.send(ApiMessage::FetchUsers);
-                            }
-                        });
-                    });
+                    ui.heading("🔍 Recherche Utilisateur");
                     ui.separator();
                     ui.add_space(10.0);
 
-                    // L'astuce ici : On autorise le défilement horizontal !
-                    // Si l'email d'un utilisateur est trop long, ça ne cassera pas la colonne.
-                    egui::ScrollArea::both()
-                        .id_salt("user_scroll")
-                        .max_height(200.0)
-                        .show(ui, |ui| {
-                            egui::Grid::new("user_list_grid")
-                                .striped(true)
-                                .spacing([20.0, 10.0])
-                                .show(ui, |ui| {
-                                    ui.strong("Nom");
-                                    ui.strong("Email");
-                                    ui.strong("Rôle");
-                                    ui.strong("Actions");
-                                    ui.end_row();
+                    ui.horizontal(|ui| {
+                        ui.label("Email :");
+                        ui.text_edit_singleline(&mut app.search_email_input);
+                        if ui.button("Rechercher").clicked() {
+                            if !app.search_email_input.is_empty() {
+                                let _ = app.sender.send(ApiMessage::SearchUserByEmail(app.search_email_input.clone()));
+                            }
+                        }
+                    });
 
-                                    if app.users_list.is_empty() {
-                                        ui.label("Aucun utilisateur chargé...");
-                                        ui.label("-"); ui.label("-"); ui.label("-");
-                                        ui.end_row();
-                                    } else {
-                                        for user in app.users_list.iter() {
-                                            ui.label(format!("{} {}", user.first_name, user.last_name));
-                                            ui.label(&user.email);
-
-                                            let color = match user.role {
-                                                Role::ENROLLER => egui::Color32::LIGHT_BLUE,
-                                                Role::ADMIN => egui::Color32::LIGHT_RED,
-                                                _ => egui::Color32::GRAY,
-                                            };
-                                            let role_text = match user.role {
-                                                Role::ADMIN => "Admin",
-                                                Role::ENROLLER => "Enrôleur",
-                                                Role::USER => "Utilisateur",
-                                                Role::NONE => "Aucun"
-                                            };
-                                            ui.colored_label(color, role_text);
-
-                                            if user.email != app.login_email && app.role_user == Role::ADMIN {
-                                                if ui.button("🗑️").on_hover_text("Supprimer").clicked() {
-                                                    let _ = app.sender.send(ApiMessage::DeleteUser(user.id));
-                                                }
-                                            } else {
-                                                ui.label(""); 
-                                            }
-                                            ui.end_row();
-                                        }
-                                    }
-                                });
-                        });
+                    // ... (Ici tu mets tout le reste du code de résultat de recherche
+                    // qu'on a vu dans le message précédent) ...
                 });
 
-                ui.add_space(20.0); // Espace entre les deux cartes de droite
-
-                // --- CARTE DES BINDKEYS ---
-                card_frame.show(ui, |ui| {
-                    ui.horizontal(|ui| {
-                        ui.heading("🔑 BindKeys");
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if ui.button("🔄 Actualiser").clicked() {
-                                // Action d'actualisation des clés
-                            }
+                } else {
+                    // =========================================================
+                    // VUE STANDARD : On bloque l'interface
+                    // =========================================================
+                    card_frame.show(ui, |ui| {
+                        ui.vertical_centered(|ui| {
+                            ui.add_space(50.0);
+                            ui.heading("🔒 Accès Restreint");
+                            ui.add_space(10.0);
+                            ui.label(
+                                egui::RichText::new("La gestion des utilisateurs et des BindKeys\nest réservée aux administrateurs.")
+                                    .color(egui::Color32::GRAY)
+                                    .italics()
+                            );
+                            ui.add_space(50.0);
                         });
                     });
-                    ui.separator();
-                    ui.add_space(10.0);
-
-                    egui::ScrollArea::both()
-                        .id_salt("bk_scroll")
-                        .max_height(200.0)
-                        .show(ui, |ui| {
-                            egui::Grid::new("bk_list_grid")
-                                .striped(true)
-                                .spacing([20.0, 10.0])
-                                .show(ui, |ui| {
-                                    ui.strong("Serial Number");
-                                    ui.strong("Public Key");
-                                    ui.strong("Status");
-                                    ui.strong("Actions");
-                                    ui.end_row();
-
-                                    if app.users_list.is_empty() {
-                                        ui.label("Aucune BindKey chargée...");
-                                        ui.label("-"); ui.label("-"); ui.label("-");
-                                        ui.end_row();
-                                    } else {
-                                        for user in app.users_list.iter() {
-                                            ui.label(format!("{} {}", user.first_name, user.last_name));
-                                            ui.label(&user.email);
-                                            ui.colored_label(egui::Color32::LIGHT_GREEN, "Actif");
-                                            if ui.button("🗑️").clicked() { /* ... */ }
-                                            ui.end_row();
-                                        }
-                                    }
-                                });
-                        });
-                });
+                }            
             });
-       });
+        });
+        ui.centered_and_justified( |ui| {
+            if !app.enroll_status.is_empty() {
+                ui.add_space(10.0);
+                let color = if app.enroll_status.contains("Erreur") || app.enroll_status.contains("Refus") {
+                    egui::Color32::from_rgb(255, 100, 100)
+                } else {
+                    egui::Color32::from_rgb(100, 200, 255)
+                };
+                ui.colored_label(color, &app.enroll_status);
+            }
+        });
     });
 }
 

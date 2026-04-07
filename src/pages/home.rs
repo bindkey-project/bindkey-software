@@ -99,6 +99,8 @@ pub fn show_home_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
     // =========================================================
     // NOUVELLE CARTE : SYSTÈME ET MISES À JOUR
     // =========================================================
+
+    ui.add_space(10.0);
     let card_frame = egui::Frame::none()
         .fill(ui.visuals().window_fill())
         .rounding(12.0)
@@ -167,13 +169,6 @@ pub fn show_home_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
                 }
             });
         }
-
-        card_frame.show(ui, |ui| {
-            ui.heading("Test Ajout Mise à Jour");
-            ui.separator();
-            ui.add_space(10.0);
-        });
-
         if !app.update_status.is_empty() {
             ui.add_space(10.0);
             let color = if app.update_status.contains("❌") { egui::Color32::RED } else { egui::Color32::GREEN };

@@ -1,3 +1,4 @@
+use crate::pages::volumes::rollback_physical_volume;
 use crate::protocol::protocol::{
     ApiMessage, LoginSuccessResponse, ModifyPayload, Page, RegisterPayload, Role,
     StatusBindkey::ACTIVE, User, VolumeCreatedInfo,
@@ -272,6 +273,8 @@ pub fn handle_api_message(app: &mut BindKeyApp, message: ApiMessage) {
                 UsbResponse::Success(SuccessData::VolumeCreated {
                     encrypted_key,
                     volume_id,
+                    device_path,
+                    partition_number,
                 }) => {
                     let clone_sender = app.sender.clone();
                     let clone_auth_token = app.server_token.clone();
@@ -280,6 +283,7 @@ pub fn handle_api_message(app: &mut BindKeyApp, message: ApiMessage) {
                     let clone_device_name = app.device_name.clone();
                     let clone_url = app.config.api_url.clone();
                     let clone_api_client = app.api_client.clone();
+                    let clone_port = app.current_port_name.clone();
 
                     tokio::spawn(async move {
                         let payload = VolumeCreatedInfo {
@@ -287,7 +291,7 @@ pub fn handle_api_message(app: &mut BindKeyApp, message: ApiMessage) {
                             name: clone_volume_name,
                             size_bytes: clone_volume_size,
                             encrypted_key: encrypted_key,
-                            id: volume_id,
+                            id: volume_id.clone(),
                         };
                         let url = format!("{}/volumes", clone_url);
                         let resultat = clone_api_client
@@ -304,13 +308,42 @@ pub fn handle_api_message(app: &mut BindKeyApp, message: ApiMessage) {
                                     ));
                                 } else {
                                     let _ = clone_sender.send(ApiMessage::VolumeCreationStatus(
-                                        " Refus serveur (API KO)".to_string(),
+                                        format!(
+                                            "Refus serveur ({}). Suppression du volume en cours...",
+                                            response.status()
+                                        ),
+                                    ));
+
+                                    rollback_physical_volume(
+                                        &device_path,
+                                        &partition_number,
+                                        &clone_port,
+                                        &volume_id,
+                                    );
+
+                                    let _ = clone_sender.send(ApiMessage::VolumeCreationStatus(
+                                        "Volume annulé proprement suite à l'erreur serveur."
+                                            .to_string(),
                                     ));
                                 }
                             }
                             Err(e) => {
+                                let _ =
+                                    clone_sender.send(ApiMessage::VolumeCreationStatus(format!(
+                                        "Erreur Réseau : {}. Suppression du volume en cours...",
+                                        e
+                                    )));
+
+                                rollback_physical_volume(
+                                    &device_path,
+                                    &partition_number,
+                                    &clone_port,
+                                    &volume_id,
+                                );
+
                                 let _ = clone_sender.send(ApiMessage::VolumeCreationStatus(
-                                    format!(" Erreur Réseau : {}", e),
+                                    "Volume annulé proprement suite à la coupure réseau."
+                                        .to_string(),
                                 ));
                             }
                         }
@@ -449,6 +482,66 @@ pub fn handle_api_message(app: &mut BindKeyApp, message: ApiMessage) {
         }
         ApiMessage::DeleteUserError(e) => {
             app.enroll_status = format!("Échec de la suppression: {}", e);
+        }
+        ApiMessage::SearchUserByEmail(email) => {
+            let clone_sender = app.sender.clone();
+            let url = app.config.api_url.clone();
+            let clone_auth_token = app.server_token.clone();
+            let clone_api_client = app.api_client.clone();
+
+            app.enroll_status = "Recherche en cours...".to_string();
+
+            tokio::spawn(async move {
+                // Option A : Ton API possède une route de recherche par email
+                let url = format!("{}/admin/users/search?email={}", url, email);
+
+                let resultat = clone_api_client
+                    .get(&url)
+                    .bearer_auth(clone_auth_token)
+                    .send()
+                    .await;
+
+                match resultat {
+                    Ok(response) => {
+                        if response.status().is_success() {
+                            // Attention: il faut adapter la désérialisation selon ce que renvoie ton backend !
+                            // Ex: Une structure json { "user": {..}, "bindkey": {..} }
+                            // Ici on simule que l'API renvoie juste l'User pour l'instant
+                            if let Ok(user_data) = response.json::<User>().await {
+                                // TODO: Récupérer la BindKey (soit incluse dans user_data, soit via un 2ème appel API)
+                                let fake_bindkey = None;
+                                let _ = clone_sender
+                                    .send(ApiMessage::UserFound(user_data, fake_bindkey));
+                            }
+                        } else if response.status() == reqwest::StatusCode::NOT_FOUND {
+                            let _ = clone_sender.send(ApiMessage::SearchUserError(
+                                "Utilisateur introuvable".to_string(),
+                            ));
+                        } else {
+                            let _ = clone_sender.send(ApiMessage::SearchUserError(format!(
+                                "Erreur serveur: {}",
+                                response.status()
+                            )));
+                        }
+                    }
+                    Err(e) => {
+                        let _ = clone_sender
+                            .send(ApiMessage::SearchUserError(format!("Erreur réseau: {}", e)));
+                    }
+                }
+            });
+        }
+
+        ApiMessage::UserFound(user, bindkey) => {
+            app.searched_user = Some(user);
+            app.searched_bindkey = bindkey;
+            app.enroll_status = "Utilisateur trouvé.".to_string();
+        }
+
+        ApiMessage::SearchUserError(e) => {
+            app.searched_user = None;
+            app.searched_bindkey = None;
+            app.enroll_status = e;
         }
         ApiMessage::LogOutSuccess => {
             app.current_page = Page::Login;

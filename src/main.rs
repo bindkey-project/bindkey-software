@@ -6,7 +6,8 @@ mod config;
 mod pages;
 mod protocol;
 use crate::protocol::protocol::{
-    ApiMessage, LogOut, Page, Role, UsbDevice, User, VolumeTab, create_secure_client,
+    ApiMessage, BindKeyInfo, LogOut, Page, Role, UsbDevice, User, VolumeInfo, VolumeTab,
+    create_secure_client,
 };
 mod usb_service;
 use crate::config::AppConfig;
@@ -53,6 +54,10 @@ struct BindKeyApp {
     pub available_devices: Vec<UsbDevice>,
     pub active_tab: VolumeTab,
     pub update_status: String,
+    pub dashboard_volumes: Vec<VolumeInfo>,
+    pub search_email_input: String,
+    pub searched_user: Option<User>,
+    pub searched_bindkey: Option<BindKeyInfo>,
 }
 
 impl BindKeyApp {
@@ -130,6 +135,10 @@ impl BindKeyApp {
             available_devices: Vec::new(),
             active_tab: VolumeTab::Gestion,
             update_status: String::new(),
+            dashboard_volumes: Vec::new(),
+            search_email_input: String::new(),
+            searched_bindkey: None,
+            searched_user: None,
         }
     }
 }
@@ -157,7 +166,7 @@ impl eframe::App for BindKeyApp {
                     }
                 }
             }
-            self.usb_connected = true;
+            self.usb_connected = !found_port.is_empty();
             self.current_port_name = found_port;
         }
 
@@ -174,10 +183,8 @@ impl eframe::App for BindKeyApp {
                 ui.horizontal(|ui| {
                     if self.usb_connected {
                         ui.colored_label(egui::Color32::GREEN, "BindKey Connectée");
-                        ui.label("BindKey Connectée");
                     } else {
                         ui.colored_label(egui::Color32::RED, "BindKey Déconnectée");
-                        ui.label("BindKey Déconnectée");
                     }
                 });
                 ui.add_space(20.0);

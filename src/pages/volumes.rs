@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use crate::BindKeyApp;
 use crate::protocol::protocol::{
-    ApiMessage, LsblkOutput, UsbDevice, VolumeInitInfo, VolumeInitResponse, VolumeTab,
+    ApiMessage, LsblkOutput, UsbDevice, VolumeInfo, VolumeInitInfo, VolumeInitResponse, VolumeTab,
 };
 use crate::protocol::share_protocol::{SuccessData, UsbResponse};
 use eframe::egui;
@@ -20,6 +20,7 @@ pub fn show_volumes_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
             ui.heading("💾 Volumes & Chiffrement");
             ui.add_space(20.0);
             ui.horizontal(|ui| {
+                ui.selectable_value(&mut app.active_tab, VolumeTab::Dashboard, "Dashboard");
                 ui.selectable_value(&mut app.active_tab, VolumeTab::Gestion, "Gestion des Volumes");
                 ui.selectable_value(&mut app.active_tab, VolumeTab::Formatage, "Formatage clé USB");
             });
@@ -31,7 +32,143 @@ pub fn show_volumes_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
 
             match app.active_tab {
                 // =================================================================
-                // ONGLET 1 : GESTION DES VOLUMES
+                // ONGLET 1 : DASHBOARD (TABLEAU DE BORD)
+                // =================================================================
+                VolumeTab::Dashboard => {
+                    let frame_style = egui::Frame::none()
+                        .fill(ui.visuals().window_fill())
+                        .rounding(10.0)
+                        .stroke(ui.visuals().window_stroke())
+                        .inner_margin(20.0);
+
+                    frame_style.show(ui, |ui| {
+                        ui.set_width(ui.available_width());
+
+                        ui.horizontal(|ui| {
+                            ui.heading("Vos volumes sécurisés");
+                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                // Bouton pour rafraîchir la liste
+                                if ui.button("🔄 Actualiser").clicked() {
+                                    if let Ok(output) = Command::new("lsblk")
+                                        .args(&["-J", "-b", "-o", "NAME,MODEL,SIZE,TRAN,FSTYPE,PTTYPE,MOUNTPOINT,LABEL"])
+                                        .output()
+                                    {
+                                        let ouput_str = String::from_utf8_lossy(&output.stdout);
+                                        if let Ok(parsed) = serde_json::from_str::<LsblkOutput>(&ouput_str) {
+                                            let mut extracted_volumes = Vec::new();
+                                            for disk in parsed.blockdevices {
+                                                if disk.tran.as_deref() == Some("usb") {
+                                                    if let Some(children) = disk.children {
+                                                        for part in children {
+                                                            // On ignore les très petites partitions
+                                                            if part.size < 10_000_000 { continue; }
+
+                                                            let total_gb = part.size as f64 / 1_073_741_824.0;
+                                                            extracted_volumes.push(VolumeInfo {
+                                                                name: part.label.unwrap_or_else(|| part.name.clone()),
+                                                                device_path: format!("/dev/{}", part.name),
+                                                                total_space_gb: (total_gb * 10.0).round() / 10.0,
+                                                                is_mounted: part.mountpoint.is_some(),
+                                                                mount_point: part.mountpoint,
+                                                            });
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                            app.dashboard_volumes = extracted_volumes;
+                                        }
+                                    }
+                                }
+                            });
+                        });
+
+                        ui.add_space(20.0);
+
+                        // Affichage dynamique des cartes
+                        if app.dashboard_volumes.is_empty() {
+                            ui.label(egui::RichText::new("Aucun volume BindKey détecté. Branchez votre clé et cliquez sur Actualiser.").italics());
+                        } else {
+                            for vol in &app.dashboard_volumes {
+                                egui::Frame::group(ui.style()).show(ui, |ui| {
+                                    ui.set_width(ui.available_width());
+                                    ui.horizontal(|ui| {
+
+                                        // Info à gauche
+                                        ui.vertical(|ui| {
+                                            ui.strong(&vol.name);
+                                            ui.label(format!("Taille : {} Go", vol.total_space_gb));
+                                            ui.label(format!("Chemin : {}", vol.device_path));
+                                        });
+
+                                        // Boutons à droite
+                                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+
+                                            if vol.is_mounted {
+                                                ui.colored_label(egui::Color32::GREEN, "🔓 Monté");
+
+                                                if ui.button("Démonter").clicked() {
+                                                    let clone_path = vol.device_path.clone();
+                                                    let clone_sender = app.sender.clone();
+
+                                                    tokio::spawn(async move {
+                                                        let _ = clone_sender.send(ApiMessage::VolumeCreationStatus(format!("Démontage de {}...", clone_path)));
+
+                                                        let umount_status = Command::new("/usr/bin/udisksctl")
+                                                            .args(["unmount", "-b", &clone_path])
+                                                            .output();
+
+                                                        if let Ok(output) = umount_status {
+                                                            if output.status.success() {
+                                                                let _ = clone_sender.send(ApiMessage::VolumeCreationStatus("Volume démonté avec succès.".to_string()));
+                                                            } else {
+                                                                let err = String::from_utf8_lossy(&output.stderr);
+                                                                let _ = clone_sender.send(ApiMessage::VolumeCreationStatus(format!("Erreur démontage: {}", err)));
+                                                            }
+                                                        }
+                                                    });
+                                                }
+
+                                                if ui.button("📂 Ouvrir").clicked() {
+                                                    if let Some(mount_path) = &vol.mount_point {
+                                                        let _ = Command::new("xdg-open").arg(mount_path).spawn();
+                                                    }
+                                                }
+                                            } else {
+                                                ui.colored_label(egui::Color32::RED, "🔒 Verrouillé / Non Monté");
+
+                                                if ui.button("Monter le volume").clicked() {
+                                                    let clone_path = vol.device_path.clone();
+                                                    let clone_sender = app.sender.clone();
+
+                                                    tokio::spawn(async move {
+                                                        let _ = clone_sender.send(ApiMessage::VolumeCreationStatus("Montage en cours... (Assurez-vous d'avoir validé votre empreinte)".to_string()));
+
+                                                        let mount_status = Command::new("/usr/bin/udisksctl")
+                                                            .args(["mount", "-b", &clone_path])
+                                                            .output();
+
+                                                        if let Ok(output) = mount_status {
+                                                            if output.status.success() {
+                                                                let _ = clone_sender.send(ApiMessage::VolumeCreationStatus("Volume monté avec succès !".to_string()));
+                                                            } else {
+                                                                let err = String::from_utf8_lossy(&output.stderr);
+                                                                let _ = clone_sender.send(ApiMessage::VolumeCreationStatus(format!("Erreur OS au montage: {}", err)));
+                                                            }
+                                                        }
+                                                    });
+                                                }
+                                            }
+                                        });
+                                    });
+                                });
+                                ui.add_space(10.0);
+                            }
+                        }
+                    });
+                },
+
+                // =================================================================
+                // ONGLET 2 : GESTION DES VOLUMES
                 // =================================================================
                 VolumeTab::Gestion => {
                     let frame_style = egui::Frame::none()
@@ -53,24 +190,17 @@ pub fn show_volumes_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
                                 .min_size(egui::vec2(250.0, 40.0));
 
                             if ui.add(btn_scan).clicked() {
-                            app.volume_status = "🔌 Recherche des infos du disque...".to_string();
+                                app.volume_status = "🔌 Recherche des infos du disque...".to_string();
 
-    // ==========================================
-    // 1. PARTIE MATÉRIELLE : Scan brut (lsblk)
-    // ==========================================
                                 let output = Command::new("lsblk")
                                     .args(&["-J", "-b", "-o", "NAME,MODEL,SIZE,TRAN,FSTYPE,PTTYPE"])
                                     .output()
                                     .expect("Erreur lsblk");
 
                                 let ouput_str = String::from_utf8_lossy(&output.stdout);
-
-                                println!("DEBUG LSBLK : {}", ouput_str);
                                 let parsed: LsblkOutput = serde_json::from_str(&ouput_str).unwrap_or(LsblkOutput { blockdevices: vec![] });
 
                                 let mut devices = Vec::new();
-
-    // On prépare des variables pour stocker les capacités de la clé qu'on va trouver
                                 let mut target_total_gb = 0.0;
                                 let mut target_free_gb = 0.0;
                                 let mut target_name = String::new();
@@ -78,9 +208,7 @@ pub fn show_volumes_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
                                 for disk in parsed.blockdevices {
                                     if let Some(tran) = disk.tran {
                                         if tran.trim() == "usb" {
-
                                             let model = disk.model.unwrap_or("Inconnu".to_string());
-                                            println!("Model : {}", model);
 
                                             if !model.to_uppercase().contains("BINDKEY") {
                                                 continue;
@@ -89,14 +217,12 @@ pub fn show_volumes_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
                                             let size_gb = (disk.size as f64) / (1024.0 * 1024.0 * 1024.0);
                                             let label = format!("{} ({:.1} GB) - /dev/{}", model.trim(), size_gb, disk.name);
 
-                // --- LE CALCUL MAGIQUE DE L'ESPACE LIBRE ---
                                             let mut used_bytes = 0;
                                             let mut partitions_paths = Vec::new();
 
-                // Si le disque a des partitions (children)
                                             if let Some(children) = &disk.children {
                                                 for child in children {
-                                                    used_bytes += child.size; // On additionne la taille des partitions
+                                                    used_bytes += child.size;
                                                     partitions_paths.push(format!("/dev/{}", child.name));
                                                 }
                                             }
@@ -109,7 +235,6 @@ pub fn show_volumes_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
                                                 disk.size.saturating_sub(used_bytes)
                                             };
 
-                // On met à jour nos variables globales pour cette clé
                                             target_total_gb = (disk.size as f64) / (1024.0 * 1024.0 * 1024.0);
                                             target_free_gb = (free_bytes as f64) / (1024.0 * 1024.0 * 1024.0);
                                             target_name = model.trim().to_string();
@@ -123,9 +248,6 @@ pub fn show_volumes_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
                                     }
                                 }
 
-
-
-
                                 app.available_devices = devices;
 
                                 if app.available_devices.is_empty() {
@@ -133,9 +255,6 @@ pub fn show_volumes_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
                                     return;
                                 }
 
-    // ==========================================
-    // 2. PARTIE LOGICIELLE : Port Série (BindKey)
-    // ==========================================
                                 let clone_sender = app.sender.clone();
                                 let clone_port_name = app.current_port_name.clone();
                                 let bypass_usb = true;
@@ -148,15 +267,12 @@ pub fn show_volumes_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
                                     let resultat_usb: Result<UsbResponse, String>;
 
                                     if bypass_usb {
-                                        println!(">> SIMULATION SCAN DISQUE");
                                         tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-
                                         resultat_usb = Ok(UsbResponse::Success(SuccessData::DeviceInfo {
                                             device_name: clone_device_name,
                                             device_size: clone_total_gb,
                                             device_available_size: clone_free_gb
                                         }));
-
                                     } else {
                                         if !clone_port_name.is_empty() {
                                             match serialport::new(&clone_port_name, 115200).timeout(Duration::from_secs(2)).open() {
@@ -168,7 +284,6 @@ pub fn show_volumes_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
                                                     match crate::usb_service::send_text_command(&mut *port, "getdevice") {
                                                         Ok(map) => {
                                                             let name_str = map.get("DN").cloned().unwrap_or(clone_device_name);
-
                                                             resultat_usb = Ok(UsbResponse::Success(SuccessData::DeviceInfo {
                                                                 device_name: name_str,
                                                                 device_size: clone_total_gb,
@@ -228,7 +343,6 @@ pub fn show_volumes_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
                             ui.label("Pour éviter toute erreur de formatage ou de chiffrement, veuillez débrancher les autres clés et ne conserver que la BindKey cible, puis relancez l'analyse.");
                         });
                     }
-
                     else if app.available_devices.len() == 1 {
                         if !app.device_name.is_empty() {
                             frame_style.show(ui, |ui| {
@@ -254,18 +368,11 @@ pub fn show_volumes_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
                                         ui.end_row();
 
                                         ui.label("Espace Total :");
-                                        ui.colored_label(
-                                        egui::Color32::BLUE,
-                                        format!("{} Go", app.device_size),
-                                        );
+                                        ui.colored_label(egui::Color32::BLUE, format!("{} Go", app.device_size));
                                         ui.end_row();
 
                                         ui.label("Espace Disponible :");
-                                        let color = if app.device_available_space < 5.0 {
-                                            egui::Color32::RED
-                                        } else {
-                                            egui::Color32::GREEN
-                                        };
+                                        let color = if app.device_available_space < 5.0 { egui::Color32::RED } else { egui::Color32::GREEN };
                                         ui.colored_label(color, format!("{} Go", app.device_available_space));
                                         ui.end_row();
                                     });
@@ -308,25 +415,15 @@ pub fn show_volumes_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
 
                                 ui.horizontal(|ui| {
                                     ui.label("Nom du volume :");
-                                    ui.add(
-                                    egui::TextEdit::singleline(&mut app.volume_created_name)
-                                        .min_size(egui::vec2(200.0, 20.0)),
-                                    );
+                                    ui.add(egui::TextEdit::singleline(&mut app.volume_created_name).min_size(egui::vec2(200.0, 20.0)));
                                 });
 
                                 ui.add_space(10.0);
 
-                                let max_size = if app.device_available_space > 0.0 {
-                                    app.device_available_space
-                                } else {
-                                    1.0
-                                };
+                                let max_size = if app.device_available_space > 0.0 { app.device_available_space } else { 1.0 };
                                 ui.horizontal(|ui| {
                                     ui.label("Taille allouée :");
-                                    ui.add(
-                                    egui::Slider::new(&mut app.volume_created_size, 1..=max_size as u32)
-                                        .text("Go"),
-                                    );
+                                    ui.add(egui::Slider::new(&mut app.volume_created_size, 1..=max_size as u32).text("Go"));
                                 });
 
                                 ui.add_space(20.0);
@@ -336,13 +433,9 @@ pub fn show_volumes_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
                                         .min_size(egui::vec2(250.0, 45.0));
 
                                     if ui.add(btn_create).clicked() {
-                                        let bypass_usb = false;
+                                        let bypass_usb = true;
 
-                                        app.volume_status = if bypass_usb {
-                                            "SIMULATION : Init Serveur...".to_string()
-                                        } else {
-                                            "Initialisation sur le serveur...".to_string()
-                                        };
+                                        app.volume_status = if bypass_usb { "SIMULATION : Init Serveur...".to_string() } else { "Initialisation sur le serveur...".to_string() };
 
                                         let clone_sender = app.sender.clone();
                                         let clone_volume_name = app.volume_created_name.clone();
@@ -352,28 +445,17 @@ pub fn show_volumes_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
                                         let clone_auth_token = app.server_token.clone();
                                         let clone_port_name = app.current_port_name.clone();
                                         let clone_api_client = app.api_client.clone();
-
                                         let clone_device_path = app.available_devices[0].path.clone();
 
                                         tokio::spawn(async move {
-    // =================================================================
-    // 0. LES VARIABLES DE TEST (SIMULATION)
-    // =================================================================
-                                            let bypass_server = false;
+                                            let bypass_server = true;
                                             let bypass_usb = false;
 
-    // =================================================================
-    // 1. VALIDATION SERVEUR (API)
-    // =================================================================
                                             let serveur_volume_id = if bypass_server {
-        // --- MODE SIMULATION SERVEUR ---
                                                 tokio::time::sleep(std::time::Duration::from_millis(800)).await;
                                                 let _ = clone_sender.send(ApiMessage::VolumeCreationStatus("[SIMU] Nom validé. Création de la partition...".to_string()));
-
                                                 "ID-SIMULATION-12345".to_string()
-
                                             } else {
-        // --- MODE RÉEL ---
                                                 let url = format!("{}/verify_volume", clone_url);
                                                 let payload = VolumeInitInfo {
                                                     name: clone_volume_name.clone(),
@@ -390,8 +472,7 @@ pub fn show_volumes_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
                                                                 return;
                                                             }
                                                             let _ = clone_sender.send(ApiMessage::VolumeCreationStatus("Nom validé par le serveur. Création de la partition...".to_string()));
-
-                                                            data.volume_id // C'est ici qu'on récupère le vrai ID
+                                                            data.volume_id
                                                         } else {
                                                             let _ = clone_sender.send(ApiMessage::VolumeCreationStatus("Erreur lecture réponse serveur".to_string()));
                                                             return;
@@ -408,143 +489,125 @@ pub fn show_volumes_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
                                                 }
                                             };
 
-// =================================================================
-    // ÉTAPE 2 : INITIALISATION DE LA CLÉ DE CHIFFREMENT (BINDKEY)
-    // =================================================================
                                             let mut encrypted_key_storage = String::new();
 
-                                                if bypass_usb {
-        // --- MODE SIMULATION USB (INIT) ---
-                                                    println!(">> SIMULATION INIT CRYPTO avec ID: {}", serveur_volume_id);
-                                                    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-                                                    encrypted_key_storage = "SIMULATED-KEY-XYZ-999".to_string();
-                                                    let _ = clone_sender.send(ApiMessage::VolumeCreationStatus("[SIMU] Clé générée. Découpage du disque...".to_string()));
-                                                } else {
-        // --- MODE RÉEL USB (INIT) ---
-                                                    if !clone_port_name.is_empty() {
-                                                        match serialport::new(&clone_port_name, 115200).timeout(std::time::Duration::from_secs(60)).open() {
-                                                            Ok(mut port) => {
-                                                                let _ = port.write_data_terminal_ready(true);
-                                                                let _ = port.write_request_to_send(true);
-                                                                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                                            if bypass_usb {
+                                                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                                                encrypted_key_storage = "SIMULATED-KEY-XYZ-999".to_string();
+                                                let _ = clone_sender.send(ApiMessage::VolumeCreationStatus("[SIMU] Clé générée. Découpage du disque...".to_string()));
+                                            } else {
+                                                if !clone_port_name.is_empty() {
+                                                    match serialport::new(&clone_port_name, 115200).timeout(std::time::Duration::from_secs(60)).open() {
+                                                        Ok(mut port) => {
+                                                            let _ = port.write_data_terminal_ready(true);
+                                                            let _ = port.write_request_to_send(true);
+                                                            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
 
-                    // On envoie la demande de génération de clé
-                                                                let cmd_init = format!(
-                                                                    "volume_name={}\n size_gb={}\n volume_id={}\n", 
-                                                                    clone_volume_name, clone_volume_size, serveur_volume_id
-                                                                );
+                                                            let cmd_init = format!(
+                                                                "volume_name={}\n size_gb={}\n volume_id={}\n", 
+                                                                clone_volume_name, clone_volume_size, serveur_volume_id
+                                                            );
 
-                                                                match crate::usb_service::send_text_command(&mut *port, &cmd_init) {
-                                                                    Ok(map) => {
-                                                                        if let Some(key) = map.get("KEY").cloned() {
-                                                                            encrypted_key_storage = key;
-                                                                            let _ = clone_sender.send(ApiMessage::VolumeCreationStatus("Clé générée. Découpage du disque...".to_string()));
-                                                                        } else {
-                                                                            let _ = clone_sender.send(ApiMessage::VolumeCreationStatus("Erreur: La puce n'a pas renvoyé la clé".to_string()));
-                                                                            return;
-                                                                        }
-                                                                    },
-                                                                    Err(e) => {
-                                                                        let _ = clone_sender.send(ApiMessage::VolumeCreationStatus(format!("Échec USB (Init): {}", e)));
+                                                            match crate::usb_service::send_text_command(&mut *port, &cmd_init) {
+                                                                Ok(map) => {
+                                                                    if let Some(key) = map.get("KEY").cloned() {
+                                                                        encrypted_key_storage = key;
+                                                                        let _ = clone_sender.send(ApiMessage::VolumeCreationStatus("Clé générée. Découpage du disque...".to_string()));
+                                                                    } else {
+                                                                        let _ = clone_sender.send(ApiMessage::VolumeCreationStatus("Erreur: La puce n'a pas renvoyé la clé".to_string()));
                                                                         return;
                                                                     }
+                                                                },
+                                                                Err(e) => {
+                                                                    let _ = clone_sender.send(ApiMessage::VolumeCreationStatus(format!("Échec USB (Init): {}", e)));
+                                                                    return;
                                                                 }
-                                                            },
-                                                            Err(e) => {
-                                                                let _ = clone_sender.send(ApiMessage::VolumeCreationStatus(format!("Impossible d'ouvrir le port: {}", e)));
-                                                                return;
                                                             }
+                                                        },
+                                                        Err(e) => {
+                                                            let _ = clone_sender.send(ApiMessage::VolumeCreationStatus(format!("Impossible d'ouvrir le port: {}", e)));
+                                                            return;
                                                         }
-                                                    } else {
-                                                        let _ = clone_sender.send(ApiMessage::VolumeCreationStatus("Aucune Bindkey détectée".to_string()));
-                                                        return;
                                                     }
+                                                } else {
+                                                    let _ = clone_sender.send(ApiMessage::VolumeCreationStatus("Aucune Bindkey détectée".to_string()));
+                                                    return;
                                                 }
+                                            }
 
-    // =================================================================
-    // ÉTAPE 3 : DÉCOUPAGE ET FORMATAGE (OS)
-    // =================================================================
-    let partition_result = create_and_format_partition(
-        &clone_device_path,
-        clone_volume_size as f64,
-        &clone_volume_name
-    );
+                                            let partition_result = create_and_format_partition(
+                                                &clone_device_path,
+                                                clone_volume_size as f64,
+                                                &clone_volume_name
+                                            );
 
-    let (start_sec, end_sec) = match partition_result {
-        Ok(secteurs) => secteurs,
-        Err(e) => {
-            let _ = clone_sender.send(ApiMessage::VolumeCreationStatus(format!("Erreur disque: {}", e)));
-            return;
-        }
-    };
+                                            let (start_sec, end_sec, num_partition) = match partition_result {
+                                                Ok(secteurs) => secteurs,
+                                                Err(e) => {
+                                                    let _ = clone_sender.send(ApiMessage::VolumeCreationStatus(format!("Erreur disque: {}", e)));
+                                                    return;
+                                                }
+                                            };
 
-    let _ = clone_sender.send(
-        ApiMessage::VolumeCreationStatus("✅ Partition prête. Verrouillage final...".to_string())
-    );
+                                            let _ = clone_sender.send(ApiMessage::VolumeCreationStatus("✅ Partition prête. Verrouillage final...".to_string()));
 
-    // =================================================================
-    // ÉTAPE 4 : VERROUILLAGE PHYSIQUE DES SECTEURS (BINDKEY)
-    // =================================================================
-    if bypass_usb {
-        // --- MODE SIMULATION USB (LOCK) ---
-        println!(">> SIMULATION LOCK avec secteurs {} à {}", start_sec, end_sec);
-        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                                            if bypass_usb {
+                                                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                                                let _ = clone_sender.send(ApiMessage::VolumeCreationSuccess(UsbResponse::Success(SuccessData::VolumeCreated {
+                                                    encrypted_key: encrypted_key_storage,
+                                                    volume_id: serveur_volume_id,
+                                                    device_path: clone_device_path.clone(),
+                                                    partition_number: num_partition,
+                                                })));
+                                            } else {
+                                                if let Ok(mut port) = serialport::new(&clone_port_name, 115200).timeout(std::time::Duration::from_secs(2)).open() {
+                                                    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
 
-        // C'est terminé, on envoie le succès à l'UI !
-        let _ = clone_sender.send(ApiMessage::VolumeCreationSuccess(UsbResponse::Success(SuccessData::VolumeCreated {
-            encrypted_key: encrypted_key_storage,
-            volume_id: serveur_volume_id,
-        })));
-    } else {
-        // --- MODE RÉEL USB (LOCK) ---
-        if let Ok(mut port) = serialport::new(&clone_port_name, 115200).timeout(std::time::Duration::from_secs(2)).open() {
-            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                                                    let cmd_lock = format!(
+                                                        "assign_sectors={} start_sec={} end_sec={}\n", 
+                                                        serveur_volume_id, start_sec, end_sec
+                                                    );
 
-            // On envoie l'ID et les secteurs pour que la puce verrouille la zone physique
-            let cmd_lock = format!(
-                "assign_sectors={} start_sec={} end_sec={}\n", 
-                serveur_volume_id, start_sec, end_sec
-            );
+                                                    let _ = crate::usb_service::send_text_command(&mut *port, &cmd_lock);
 
-            let _ = crate::usb_service::send_text_command(&mut *port, &cmd_lock);
+                                                    let _ = clone_sender.send(ApiMessage::VolumeCreationSuccess(UsbResponse::Success(SuccessData::VolumeCreated {
+                                                        encrypted_key: encrypted_key_storage,
+                                                        volume_id: serveur_volume_id,
+                                                        device_path: clone_device_path.clone(),
+                                                        partition_number: num_partition,
+                                                    })));
+                                                } else {
+                                                    let _ = clone_sender.send(ApiMessage::VolumeCreationStatus("Erreur USB (Lock): Port inaccessible".to_string()));
+                                                }
+                                            }
+                                        });
+                                    }
 
-            // C'est terminé, on envoie le succès à l'UI !
-            let _ = clone_sender.send(ApiMessage::VolumeCreationSuccess(UsbResponse::Success(SuccessData::VolumeCreated {
-                encrypted_key: encrypted_key_storage,
-                volume_id: serveur_volume_id
-            })));
-        } else {
-            let _ = clone_sender.send(ApiMessage::VolumeCreationStatus("Erreur USB (Lock): Port inaccessible".to_string()));
-        }
-    }
-});
-                                }
-
-                                if !usb_connected {
-                                    ui.label(
-                                        egui::RichText::new("Clé déconnectée")
-                                            .color(egui::Color32::RED)
-                                            .size(12.0),
-                                    );
-                                }
+                                    if !usb_connected {
+                                        ui.label(
+                                            egui::RichText::new("Clé déconnectée")
+                                                .color(egui::Color32::RED)
+                                                .size(12.0),
+                                        );
+                                    }
+                                });
                             });
-                        });
+                        }
                     }
-                }
-                ui.add_space(20.0);
+                    ui.add_space(20.0);
 
-            if !app.volume_status.is_empty() {
-                let color = if app.volume_status.contains("Erreur") || app.volume_status.contains("Refus") || app.volume_status.contains("❌") {
-                    egui::Color32::from_rgb(255, 100, 100)
-                } else {
-                    egui::Color32::from_rgb(100, 200, 255)
-                };
-                ui.colored_label(color, &app.volume_status);
-            }
+                    if !app.volume_status.is_empty() {
+                        let color = if app.volume_status.contains("Erreur") || app.volume_status.contains("Refus") || app.volume_status.contains("❌") {
+                            egui::Color32::from_rgb(255, 100, 100)
+                        } else {
+                            egui::Color32::from_rgb(100, 200, 255)
+                        };
+                        ui.colored_label(color, &app.volume_status);
+                    }
                 },
 
                 // =================================================================
-                // ONGLET 2 : FORMATAGE BRUT
+                // ONGLET 3 : FORMATAGE BRUT
                 // =================================================================
                 VolumeTab::Formatage => {
                     ui.add_space(20.0);
@@ -599,7 +662,7 @@ fn create_and_format_partition(
     device_path: &str,
     size_gb: f64,
     volume_name: &str,
-) -> Result<(u64, u64), String> {
+) -> Result<(u64, u64, String), String> {
     let output = Command::new("/usr/bin/pkexec")
         .args([
             "/usr/sbin/parted",
@@ -713,7 +776,7 @@ fn create_and_format_partition(
     let part_suffix = if device_path.chars().last().unwrap_or('a').is_ascii_digit() {
         format!("p{}", partition_id)
     } else {
-        partition_id
+        partition_id.clone()
     };
     let partition_path = format!("{}{}", device_path, part_suffix);
 
@@ -734,7 +797,7 @@ fn create_and_format_partition(
         .map_err(|e| format!("Erreur lors de l'exécution du bloc de formatage: {}", e))?;
 
     if status_format.success() {
-        Ok((start, end))
+        Ok((start, end, partition_id))
     } else {
         Err(format!(
             "Le formatage de {} a échoué (IO Error ou annulation de l'utilisateur).",
@@ -794,4 +857,54 @@ fn force_format(device_path: &str, partitions: &Vec<String>) -> Result<(), Strin
     } else {
         Err("Linux a refusé d'écrire la table de partition (Disque verrouillé).".to_string())
     }
+}
+
+pub fn rollback_physical_volume(
+    device_path: &str,
+    partition_number: &str,
+    port_name: &str,
+    volume_id: &str,
+) {
+    println!("DÉCLENCHEMENT DU ROLLBACK pour le volume {}", volume_id);
+
+    // 1. Démonter la partition au cas où l'OS l'aurait auto-montée
+    let part_suffix = if device_path.chars().last().unwrap_or('a').is_ascii_digit() {
+        format!("p{}", partition_number)
+    } else {
+        partition_number.to_string()
+    };
+    let partition_path = format!("{}{}", device_path, part_suffix);
+
+    let _ = Command::new("/usr/bin/udisksctl")
+        .args(["unmount", "-f", "-b", &partition_path])
+        .output();
+
+    // 2. Dire à la BindKey d'oublier les secteurs alloués pour cet ID
+    if !port_name.is_empty() {
+        if let Ok(mut port) = serialport::new(port_name, 115200)
+            .timeout(Duration::from_secs(2))
+            .open()
+        {
+            // TODO: Ajuste cette commande selon la syntaxe de ton firmware pour supprimer un volume
+            let cmd_delete = format!("delete_volume={}\n", volume_id);
+            let _ = crate::usb_service::send_text_command(&mut *port, &cmd_delete);
+        }
+    }
+
+    // 3. Demander à Linux de supprimer la partition de la table
+    let _ = Command::new("/usr/bin/pkexec")
+        .args([
+            "/usr/sbin/parted",
+            "-s",
+            device_path,
+            "rm",
+            partition_number,
+        ])
+        .output();
+
+    // 4. Forcer la mise à jour de l'OS
+    let _ = Command::new("/usr/sbin/partprobe")
+        .arg(device_path)
+        .output();
+    let _ = Command::new("/usr/bin/udevadm").arg("settle").output();
 }
