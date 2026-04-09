@@ -70,11 +70,11 @@ pub enum ApiMessage {
     UpdateBindKeyStatus(String, StatusBindkey),
     BindKeyStatusUpdated,
     UpdateBindKeyError(String),
-    StartFormatBindKey { 
-        device_path: String, 
+    StartFormatBindKey {
+        device_path: String,
         // Adapte le type de partition selon ta structure (ex: Vec<Partition>)
-        partitions: Vec<String>, 
-        port_name: String 
+        partitions: Vec<String>,
+        port_name: String,
     },
     FormatStatus(String),
 }

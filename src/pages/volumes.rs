@@ -1,7 +1,7 @@
 use std::process::Command;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::thread;
 use std::time::Duration;
-use std::sync::atomic::{AtomicUsize, Ordering};
 
 // Un compteur global, persistant et thread-safe, initialisé à 1
 static SIMU_VOLUME_COUNTER: AtomicUsize = AtomicUsize::new(1);
@@ -463,11 +463,11 @@ pub fn show_volumes_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
                                             let serveur_volume_id = if bypass_server {
                                                 tokio::time::sleep(std::time::Duration::from_millis(800)).await;
                                                 let _ = clone_sender.send(ApiMessage::VolumeCreationStatus("[SIMU] Nom validé. Calcul des secteurs...".to_string()));
-                                                
+
                                                 // 🟢 On incrémente le compteur de 1 à chaque fois
                                                 // (Ordering::SeqCst garantit que l'incrémentation est synchronisée entre tous les threads)
                                                 let count = SIMU_VOLUME_COUNTER.fetch_add(1, Ordering::SeqCst);
-                                                
+
                                                 // On génère une chaîne unique : ID-SIMULATION-00001, ID-SIMULATION-00002...
                                                 format!("ID-SIMULATION-{:05}", count)
                                             } else {
