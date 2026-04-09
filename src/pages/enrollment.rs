@@ -1,5 +1,5 @@
 use crate::BindKeyApp;
-use crate::protocol::protocol::{ApiMessage, Role};
+use crate::protocol::protocol::{ApiMessage, Role, StatusBindkey};
 use crate::protocol::share_protocol::{SuccessData, UsbResponse};
 use eframe::egui;
 use sha2::{Digest, Sha256};
@@ -212,30 +212,90 @@ pub fn show_enrollment_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
             // COLONNE DROITE : LES LISTES (Utilisateurs et BindKeys)
             // =========================================================
             cols[1].vertical(|ui| {
-            // 🛡️ VÉRIFICATION DU RÔLE ICI
-            if app.role_user == Role::ADMIN {
+                // 🛡️ VÉRIFICATION DU RÔLE ICI
+                if app.role_user == Role::ADMIN {
+                    // =========================================================
+                    // VUE ADMIN : On affiche le moteur de recherche
+                    // =========================================================
+                    card_frame.show(ui, |ui| {
+                        ui.heading("🔍 Recherche Utilisateur");
+                        ui.separator();
+                        ui.add_space(10.0);
 
-                // =========================================================
-                // VUE ADMIN : On affiche le moteur de recherche
-                // =========================================================
-                card_frame.show(ui, |ui| {
-                    ui.heading("🔍 Recherche Utilisateur");
-                    ui.separator();
-                    ui.add_space(10.0);
-
-                    ui.horizontal(|ui| {
-                        ui.label("Email :");
-                        ui.text_edit_singleline(&mut app.search_email_input);
-                        if ui.button("Rechercher").clicked() {
-                            if !app.search_email_input.is_empty() {
-                                let _ = app.sender.send(ApiMessage::SearchUserByEmail(app.search_email_input.clone()));
+                        ui.horizontal(|ui| {
+                            ui.label("Email :");
+                            ui.text_edit_singleline(&mut app.search_email_input);
+                            if ui.button("Rechercher").clicked() {
+                                if !app.search_email_input.is_empty() {
+                                    let _ = app.sender.send(ApiMessage::SearchUserByEmail(app.search_email_input.clone()));
+                                }
                             }
-                        }
-                    });
+                        });
 
-                    // ... (Ici tu mets tout le reste du code de résultat de recherche
-                    // qu'on a vu dans le message précédent) ...
-                });
+                        if let Some(user_data) = &mut app.search_result {
+                            ui.group(|ui| {
+                                ui.heading(format!("👤 {} {}", user_data.first_name, user_data.last_name));
+                                ui.label(format!("📧 {}", user_data.email));
+                                ui.label(format!("🛡️ Rôle : {:?}", user_data.role));
+                            });
+
+                            ui.add_space(10.0);
+
+                            if user_data.email != app.login_email {
+                                if ui.button("🗑️ Supprimer ce compte").clicked() {
+                                    let _ = app.sender.send(ApiMessage::DeleteUser(user_data.id.clone()));
+                                }
+                            }
+
+                            ui.add_space(20.0);
+
+                            // --- INFO BINDKEY ASSOCIÉE ---
+                            ui.heading("🔑 BindKey Associée");
+                            ui.separator();
+
+                            // On vérifie directement si le champ bindkey contient "Some" ou "None"
+                            if let Some(bk) = &mut user_data.bindkey {
+                                ui.group(|ui| {
+                                    ui.label(format!("📌 Numéro de Série : {}", bk.serial_number));
+
+                                    ui.add_space(5.0);
+                                    ui.horizontal(|ui| {
+                                        ui.label("Statut actuel :");
+
+                                        // --- COMBOBOX POUR CHANGER LE STATUT ---
+                                        let current_status_text = match bk.status {
+                                            StatusBindkey::ACTIVE => "🟢 Actif",
+                                            StatusBindkey::RESET => "🔴 Révoquée",
+                                            StatusBindkey::LOST => "🟠 Perdue",
+                                            StatusBindkey::BROKEN => "🔴 Cassée",
+                                        };
+
+                                        egui::ComboBox::from_id_salt("status_combo")
+                                            .selected_text(current_status_text)
+                                            .show_ui(ui, |ui| {
+                                                ui.selectable_value(&mut bk.status, StatusBindkey::ACTIVE, "🟢 Actif");
+                                                ui.selectable_value(&mut bk.status, StatusBindkey::RESET, "🔴 Révoquée");
+                                                ui.selectable_value(&mut bk.status, StatusBindkey::LOST, "🟠 Perdue");
+                                                ui.selectable_value(&mut bk.status, StatusBindkey::BROKEN, "🔴 Cassée");
+                                            });
+
+                                        // --- BOUTON DE SAUVEGARDE DU STATUT ---
+                                        if ui.button("💾 Appliquer").clicked() {
+                                            let _ = app.sender.send(ApiMessage::UpdateBindKeyStatus(
+                                                bk.serial_number.clone(),
+                                                bk.status.clone(),
+                                            ));
+                                        }
+                                    });
+                                });
+                            } else {
+                                ui.label(
+                                    egui::RichText::new("⚠️ Aucune BindKey n'est assignée à cet utilisateur pour le moment.")
+                                        .color(egui::Color32::YELLOW),
+                                );
+                            }
+                        } // Fin du if let Some(user_data)
+                    }); // Fin du card_frame.show (ADMIN)
 
                 } else {
                     // =========================================================
@@ -249,24 +309,28 @@ pub fn show_enrollment_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
                             ui.label(
                                 egui::RichText::new("La gestion des utilisateurs et des BindKeys\nest réservée aux administrateurs.")
                                     .color(egui::Color32::GRAY)
-                                    .italics()
+                                    .italics(),
                             );
                             ui.add_space(50.0);
                         });
-                    });
+                    }); // Fin du card_frame.show (NON-ADMIN)
                 }
-            });
-        });
-        ui.centered_and_justified( |ui| {
-            if !app.enroll_status.is_empty() {
-                ui.add_space(10.0);
-                let color = if app.enroll_status.contains("Erreur") || app.enroll_status.contains("Refus") {
-                    egui::Color32::from_rgb(255, 100, 100)
-                } else {
-                    egui::Color32::from_rgb(100, 200, 255)
-                };
-                ui.colored_label(color, &app.enroll_status);
-            }
+
+                // =========================================================
+                // AFFICHAGE DU STATUT DES ACTIONS (Pour tout le monde)
+                // =========================================================
+                ui.centered_and_justified(|ui| {
+                    if !app.enroll_status.is_empty() {
+                        ui.add_space(10.0);
+                        let color = if app.enroll_status.contains("Erreur") || app.enroll_status.contains("Refus") {
+                            egui::Color32::from_rgb(255, 100, 100)
+                        } else {
+                            egui::Color32::from_rgb(100, 200, 255)
+                        };
+                        ui.colored_label(color, &app.enroll_status);
+                    }
+                });
+            }); // Fin du cols[1].vertical
         });
     });
 }

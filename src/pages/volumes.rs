@@ -433,9 +433,13 @@ pub fn show_volumes_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
                                         .min_size(egui::vec2(250.0, 45.0));
 
                                     if ui.add(btn_create).clicked() {
-                                        let bypass_usb = true;
+                                        let bypass_usb_ui = false; // Valeur par défaut pour l'UI
 
-                                        app.volume_status = if bypass_usb { "SIMULATION : Init Serveur...".to_string() } else { "Initialisation sur le serveur...".to_string() };
+                                        app.volume_status = if bypass_usb_ui {
+                                            "SIMULATION : Init Serveur...".to_string() 
+                                        } else {
+                                            "Initialisation sur le serveur...".to_string() 
+                                        };
 
                                         let clone_sender = app.sender.clone();
                                         let clone_volume_name = app.volume_created_name.clone();
@@ -449,11 +453,12 @@ pub fn show_volumes_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
 
                                         tokio::spawn(async move {
                                             let bypass_server = true;
-                                            let bypass_usb = false;
-
+                                            // =========================================================
+                                            // 1. VÉRIFICATION SERVEUR (Inchangé)
+                                            // =========================================================
                                             let serveur_volume_id = if bypass_server {
                                                 tokio::time::sleep(std::time::Duration::from_millis(800)).await;
-                                                let _ = clone_sender.send(ApiMessage::VolumeCreationStatus("[SIMU] Nom validé. Création de la partition...".to_string()));
+                                                let _ = clone_sender.send(ApiMessage::VolumeCreationStatus("[SIMU] Nom validé. Calcul des secteurs...".to_string()));
                                                 "ID-SIMULATION-12345".to_string()
                                             } else {
                                                 let url = format!("{}/verify_volume", clone_url);
@@ -471,7 +476,7 @@ pub fn show_volumes_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
                                                                 let _ = clone_sender.send(ApiMessage::VolumeCreationStatus(format!("Erreur : le volume '{}' existe déjà", clone_volume_name)));
                                                                 return;
                                                             }
-                                                            let _ = clone_sender.send(ApiMessage::VolumeCreationStatus("Nom validé par le serveur. Création de la partition...".to_string()));
+                                                            let _ = clone_sender.send(ApiMessage::VolumeCreationStatus("Nom validé par le serveur. Calcul des secteurs...".to_string()));
                                                             data.volume_id
                                                         } else {
                                                             let _ = clone_sender.send(ApiMessage::VolumeCreationStatus("Erreur lecture réponse serveur".to_string()));
@@ -489,95 +494,44 @@ pub fn show_volumes_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
                                                 }
                                             };
 
-                                            let mut encrypted_key_storage = String::new();
+                                            // =========================================================
+                                            // 2. CRÉATION, COMMUNICATION USB & FORMATAGE (Tout-en-un)
+                                            // =========================================================
+                                            let _ = clone_sender.send(ApiMessage::VolumeCreationStatus("Synchronisation matérielle et découpage...".to_string()));
 
-                                            if bypass_usb {
-                                                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-                                                encrypted_key_storage = "SIMULATED-KEY-XYZ-999".to_string();
-                                                let _ = clone_sender.send(ApiMessage::VolumeCreationStatus("[SIMU] Clé générée. Découpage du disque...".to_string()));
-                                            } else {
-                                                if !clone_port_name.is_empty() {
-                                                    match serialport::new(&clone_port_name, 115200).timeout(std::time::Duration::from_secs(60)).open() {
-                                                        Ok(mut port) => {
-                                                            let _ = port.write_data_terminal_ready(true);
-                                                            let _ = port.write_request_to_send(true);
-                                                            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                                            // Clonage des variables pour le thread bloquant
+                                            let device_path_for_thread = clone_device_path.clone();
+                                            let volume_name_for_thread = clone_volume_name.clone();
+                                            let volume_id_for_thread = serveur_volume_id.clone();
+                                            let port_name_for_thread = clone_port_name.clone();
 
-                                                            let cmd_init = format!(
-                                                                "volume_name={}\n size_gb={}\n volume_id={}\n", 
-                                                                clone_volume_name, clone_volume_size, serveur_volume_id
-                                                            );
+                                            // On utilise spawn_blocking car create_and_format_partition exécute des commandes OS synchrones
+                                            let partition_result = tokio::task::spawn_blocking(move || {
+                                                // ⚠️ Remplace "crate::ton_module" par le chemin réel vers ta fonction
+                                                create_and_format_partition(
+                                                    &device_path_for_thread,
+                                                    clone_volume_size as f64,
+                                                    &volume_name_for_thread,
+                                                    &volume_id_for_thread,
+                                                    &port_name_for_thread,
+                                                )
+                                            }).await.unwrap_or_else(|e| Err(format!("Erreur critique du thread OS : {}", e)));
 
-                                                            match crate::usb_service::send_text_command(&mut *port, &cmd_init) {
-                                                                Ok(map) => {
-                                                                    if let Some(key) = map.get("KEY").cloned() {
-                                                                        encrypted_key_storage = key;
-                                                                        let _ = clone_sender.send(ApiMessage::VolumeCreationStatus("Clé générée. Découpage du disque...".to_string()));
-                                                                    } else {
-                                                                        let _ = clone_sender.send(ApiMessage::VolumeCreationStatus("Erreur: La puce n'a pas renvoyé la clé".to_string()));
-                                                                        return;
-                                                                    }
-                                                                },
-                                                                Err(e) => {
-                                                                    let _ = clone_sender.send(ApiMessage::VolumeCreationStatus(format!("Échec USB (Init): {}", e)));
-                                                                    return;
-                                                                }
-                                                            }
-                                                        },
-                                                        Err(e) => {
-                                                            let _ = clone_sender.send(ApiMessage::VolumeCreationStatus(format!("Impossible d'ouvrir le port: {}", e)));
-                                                            return;
-                                                        }
-                                                    }
-                                                } else {
-                                                    let _ = clone_sender.send(ApiMessage::VolumeCreationStatus("Aucune Bindkey détectée".to_string()));
-                                                    return;
-                                                }
-                                            }
-
-                                            let partition_result = create_and_format_partition(
-                                                &clone_device_path,
-                                                clone_volume_size as f64,
-                                                &clone_volume_name
-                                            );
-
-                                            let (start_sec, end_sec, num_partition) = match partition_result {
-                                                Ok(secteurs) => secteurs,
-                                                Err(e) => {
-                                                    let _ = clone_sender.send(ApiMessage::VolumeCreationStatus(format!("Erreur disque: {}", e)));
-                                                    return;
-                                                }
-                                            };
-
-                                            let _ = clone_sender.send(ApiMessage::VolumeCreationStatus("✅ Partition prête. Verrouillage final...".to_string()));
-
-                                            if bypass_usb {
-                                                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-                                                let _ = clone_sender.send(ApiMessage::VolumeCreationSuccess(UsbResponse::Success(SuccessData::VolumeCreated {
-                                                    encrypted_key: encrypted_key_storage,
-                                                    volume_id: serveur_volume_id,
-                                                    device_path: clone_device_path.clone(),
-                                                    partition_number: num_partition,
-                                                })));
-                                            } else {
-                                                if let Ok(mut port) = serialport::new(&clone_port_name, 115200).timeout(std::time::Duration::from_secs(2)).open() {
-                                                    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-
-                                                    let cmd_lock = format!(
-                                                        "assign_sectors={} start_sec={} end_sec={}\n", 
-                                                        serveur_volume_id, start_sec, end_sec
-                                                    );
-
-                                                    let _ = crate::usb_service::send_text_command(&mut *port, &cmd_lock);
+                                            // =========================================================
+                                            // 3. RETOUR D'ÉTAT
+                                            // =========================================================
+                                            match partition_result {
+                                                Ok((_start_sec, _end_sec, num_partition)) => {
+                                                    let _ = clone_sender.send(ApiMessage::VolumeCreationStatus("✅ Volume créé et synchronisé avec succès !".to_string()));
 
                                                     let _ = clone_sender.send(ApiMessage::VolumeCreationSuccess(UsbResponse::Success(SuccessData::VolumeCreated {
-                                                        encrypted_key: encrypted_key_storage,
                                                         volume_id: serveur_volume_id,
-                                                        device_path: clone_device_path.clone(),
+                                                        device_path: clone_device_path,
                                                         partition_number: num_partition,
                                                     })));
-                                                } else {
-                                                    let _ = clone_sender.send(ApiMessage::VolumeCreationStatus("Erreur USB (Lock): Port inaccessible".to_string()));
+                                                },
+                                                Err(e) => {
+                                                    let _ = clone_sender.send(ApiMessage::VolumeCreationStatus(format!("Erreur système/USB : {}", e)));
                                                 }
                                             }
                                         });
@@ -625,10 +579,13 @@ pub fn show_volumes_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
                         let format_button = egui::Button::new("Réinitialiser la clé à zéro");
 
                         if ui.add(format_button).clicked() {
-                            match force_format(&device.path, &device.partitions) {
-                                Ok(_) => app.formatage_status = format!("Succès : {} est vide (Espace non alloué)", device.path),
-                                Err(e) => app.formatage_status = format!("Erreur : {}", e)
-                            }
+                            // 🚀 ON DÉCLENCHE LA TÂCHE ASYNCHRONE ICI
+                            // (Assure-toi d'avoir le port name disponible, ex: app.current_port_name)
+                            let _ = app.sender.send(ApiMessage::StartFormatBindKey {
+                                device_path: device.path.clone(),
+                                partitions: device.partitions.clone(),
+                                port_name: app.current_port_name.clone(),
+                            });
                         }
                     }
                     else if app.available_devices.len() > 1 {
@@ -636,6 +593,18 @@ pub fn show_volumes_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
                     }
                     else {
                         ui.label("Branchez une Binkey et lancez l'analyse dans l'onglet 'Gestion des volumes' pour la formater");
+                    }
+
+                    ui.add_space(20.0);
+
+                    // Affichage dynamique du statut
+                    if !app.formatage_status.is_empty() {
+                        let color = if app.formatage_status.contains("Erreur") || app.formatage_status.contains("Refus") {
+                            egui::Color32::from_rgb(255, 100, 100)
+                        } else {
+                            egui::Color32::from_rgb(100, 200, 255)
+                        };
+                        ui.colored_label(color, &app.formatage_status);
                     }
 
                     ui.add_space(20.0);
@@ -658,10 +627,13 @@ pub fn show_volumes_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
 // FONCTIONS UTILITAIRES SYSTÈME
 // =================================================================
 
+// ⚠️ N'oublie pas d'ajouter port_name dans les paramètres lors de l'appel !
 fn create_and_format_partition(
     device_path: &str,
     size_gb: f64,
     volume_name: &str,
+    volume_id: &str,
+    port_name: &str,
 ) -> Result<(u64, u64, String), String> {
     let output = Command::new("/usr/bin/pkexec")
         .args([
@@ -690,7 +662,6 @@ fn create_and_format_partition(
                 let size_str = parts[3].trim_end_matches('s');
 
                 if let (Ok(start), Ok(size)) = (start_str.parse::<u64>(), size_str.parse::<u64>()) {
-                    // FIX 1 : Forcer l'alignement pour la mémoire Flash (secteur 2048 = 1 Mo)
                     let mut actual_start = start;
                     if actual_start < 2048 {
                         actual_start = 2048;
@@ -698,7 +669,6 @@ fn create_and_format_partition(
 
                     if size >= target_sectors {
                         start_sector = Some(actual_start);
-                        // On calcule la fin en partant du nouveau point de départ
                         end_sector = Some(actual_start + target_sectors - 1);
                         break;
                     }
@@ -710,12 +680,64 @@ fn create_and_format_partition(
     let start = start_sector.ok_or("Espace libre insuffisant sur la clé.")?;
     let end = end_sector.unwrap();
 
+    // =========================================================
+    // 🟢 NOUVEAU BLOC : Envoi des secteurs à la BindKey
+    // =========================================================
+    {
+        // On ouvre le port de manière synchrone (pas de .await ici car on est hors de tokio)
+        let mut port = serialport::new(port_name, 115200)
+            .timeout(Duration::from_secs(5))
+            .open()
+            .map_err(|e| format!("Impossible d'ouvrir le port USB : {}", e))?;
+
+        let _ = port.write_data_terminal_ready(true);
+        let _ = port.write_request_to_send(true);
+        thread::sleep(Duration::from_millis(500));
+
+        // 🎯 TON NOUVEAU FORMAT EXACT
+        let cmd_sectors = format!(
+            "volume_name={}\nvolume_id={}\nlba_start={}\nlba_end={}\n",
+            volume_name, volume_id, start, end
+        );
+
+        let mut is_ready = false;
+        let mut tentatives = 0;
+        let max_tentatives = 5;
+
+        // 🔄 TANT QUE ce n'est pas prêt ET qu'on n'a pas dépassé la limite
+        while !is_ready && tentatives < max_tentatives {
+            match crate::usb_service::send_text_command(&mut *port, &cmd_sectors) {
+                Ok(map) => {
+                    if map.get("STATUS").map(|val| val == "OK").unwrap_or(false) {
+                        is_ready = true; // ✅ La puce a enregistré les LBA !
+                    } else {
+                        tentatives += 1;
+                        thread::sleep(Duration::from_millis(1000));
+                    }
+                }
+                Err(_) => {
+                    tentatives += 1;
+                    thread::sleep(Duration::from_millis(1000));
+                }
+            }
+        }
+
+        // 🛑 VÉRIFICATION FINALE AVANT FORMATAGE
+        if !is_ready {
+            return Err(
+                "La BindKey n'a pas confirmé l'enregistrement des secteurs LBA. Formatage annulé."
+                    .to_string(),
+            );
+        }
+    } // Le port série se ferme proprement et automatiquement à la fin de ce bloc `{ ... }`
+    // =========================================================
+
     let status_mkpart = Command::new("/usr/bin/pkexec")
         .args([
             "/usr/sbin/parted",
             "-s",
             "-a",
-            "optimal", // On ajoute "-a optimal" par sécurité
+            "optimal",
             device_path,
             "unit",
             "s",
@@ -732,16 +754,11 @@ fn create_and_format_partition(
         return Err("parted a refusé de créer la partition.".to_string());
     }
 
-    // =========================================================
-    // FIX 2 : On force la synchronisation matérielle avec l'OS
-    // =========================================================
     let _ = Command::new("/usr/sbin/partprobe")
         .arg(device_path)
         .output();
     let _ = Command::new("/usr/bin/udevadm").arg("settle").output();
 
-    // On laisse 2 secondes à la BindKey pour digérer la nouvelle partition
-    // avant de lui envoyer mkfs dans la figure !
     thread::sleep(Duration::from_millis(2000));
 
     let output_post = Command::new("/usr/bin/pkexec")
@@ -806,7 +823,7 @@ fn create_and_format_partition(
     }
 }
 
-fn force_format(device_path: &str, partitions: &Vec<String>) -> Result<(), String> {
+pub fn force_format(device_path: &str, partitions: &Vec<String>) -> Result<(), String> {
     // 1. Démonter toutes les partitions existantes (sda1, sda2...)
     for part in partitions {
         let _ = Command::new("/usr/bin/udisksctl")

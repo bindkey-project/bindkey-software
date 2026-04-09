@@ -1,6 +1,7 @@
 use crate::protocol::share_protocol::UsbResponse;
 use reqwest::{Certificate, Client};
 use serde::{Deserialize, Serialize};
+use std::fmt::Debug;
 use std::fs;
 use std::net::{IpAddr, SocketAddr};
 use std::path::Path;
@@ -11,7 +12,7 @@ use uuid::Uuid;
 
 //----------------------------------------- ÉNUMÉRATION---------------------------------
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub enum StatusBindkey {
     ACTIVE,
     RESET,
@@ -64,8 +65,18 @@ pub enum ApiMessage {
     UserDeleted,
     UpdateStatus(String),
     SearchUserByEmail(String),
-    UserFound(User, Option<BindKeyInfo>),
+    UserFound(UserWithBindKey),
     SearchUserError(String),
+    UpdateBindKeyStatus(String, StatusBindkey),
+    BindKeyStatusUpdated,
+    UpdateBindKeyError(String),
+    StartFormatBindKey {
+        device_path: String,
+        // Adapte le type de partition selon ta structure (ex: Vec<Partition>)
+        partitions: Vec<String>,
+        port_name: String,
+    },
+    FormatStatus(String),
 }
 
 //--------------------------ÉNUMÉRATION (FIN)----------------------------
@@ -137,7 +148,6 @@ pub struct VolumeCreatedInfo {
     pub disk_id: String,
     pub name: String,
     pub size_bytes: u32,
-    pub encrypted_key: String,
     pub id: String,
 }
 
@@ -187,10 +197,20 @@ pub struct User {
     pub role: Role,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct BindKeyInfo {
     pub serial_number: String,
     pub status: StatusBindkey,
+}
+
+#[derive(Deserialize, Debug, Clone)]
+pub struct UserWithBindKey {
+    pub id: Uuid,
+    pub first_name: String,
+    pub last_name: String,
+    pub email: String,
+    pub role: Role,
+    pub bindkey: Option<BindKeyInfo>,
 }
 
 pub fn create_secure_client() -> Result<Client, String> {

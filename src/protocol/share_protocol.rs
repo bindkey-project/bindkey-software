@@ -35,7 +35,6 @@ pub enum SuccessData {
         device_available_size: f64,
     },
     VolumeCreated {
-        encrypted_key: String,
         volume_id: String,
         device_path: String,
         partition_number: String,

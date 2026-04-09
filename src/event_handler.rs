@@ -3,6 +3,7 @@ use crate::protocol::protocol::{
     ApiMessage, LoginSuccessResponse, ModifyPayload, Page, RegisterPayload, Role,
     StatusBindkey::ACTIVE, User, VolumeCreatedInfo,
 };
+use crate::protocol::protocol::{StatusBindkey, UserWithBindKey};
 use crate::protocol::share_protocol::{SuccessData, UsbResponse};
 use crate::usb_service::send_text_command;
 use crate::{BindKeyApp, pages::enrollment::hash_password_with_salt};
@@ -271,7 +272,6 @@ pub fn handle_api_message(app: &mut BindKeyApp, message: ApiMessage) {
         ApiMessage::VolumeCreationSuccess(data) => {
             match data {
                 UsbResponse::Success(SuccessData::VolumeCreated {
-                    encrypted_key,
                     volume_id,
                     device_path,
                     partition_number,
@@ -290,7 +290,6 @@ pub fn handle_api_message(app: &mut BindKeyApp, message: ApiMessage) {
                             disk_id: clone_device_name,
                             name: clone_volume_name,
                             size_bytes: clone_volume_size,
-                            encrypted_key: encrypted_key,
                             id: volume_id.clone(),
                         };
                         let url = format!("{}/volumes", clone_url);
@@ -507,11 +506,9 @@ pub fn handle_api_message(app: &mut BindKeyApp, message: ApiMessage) {
                             // Attention: il faut adapter la désérialisation selon ce que renvoie ton backend !
                             // Ex: Une structure json { "user": {..}, "bindkey": {..} }
                             // Ici on simule que l'API renvoie juste l'User pour l'instant
-                            if let Ok(user_data) = response.json::<User>().await {
+                            if let Ok(user_data) = response.json::<UserWithBindKey>().await {
                                 // TODO: Récupérer la BindKey (soit incluse dans user_data, soit via un 2ème appel API)
-                                let fake_bindkey = None;
-                                let _ = clone_sender
-                                    .send(ApiMessage::UserFound(user_data, fake_bindkey));
+                                let _ = clone_sender.send(ApiMessage::UserFound(user_data));
                             }
                         } else if response.status() == reqwest::StatusCode::NOT_FOUND {
                             let _ = clone_sender.send(ApiMessage::SearchUserError(
@@ -531,17 +528,176 @@ pub fn handle_api_message(app: &mut BindKeyApp, message: ApiMessage) {
                 }
             });
         }
-
-        ApiMessage::UserFound(user, bindkey) => {
-            app.searched_user = Some(user);
-            app.searched_bindkey = bindkey;
+        ApiMessage::UserFound(user) => {
+            app.search_result = Some(user);
             app.enroll_status = "Utilisateur trouvé.".to_string();
         }
 
         ApiMessage::SearchUserError(e) => {
-            app.searched_user = None;
-            app.searched_bindkey = None;
+            app.search_result = None;
             app.enroll_status = e;
+        }
+        ApiMessage::UpdateBindKeyStatus(serial, new_status) => {
+            let clone_sender = app.sender.clone();
+            let url = app.config.api_url.clone();
+            let clone_auth_token = app.server_token.clone();
+            let clone_api_client = app.api_client.clone();
+
+            // On prévient l'utilisateur que ça charge
+            app.enroll_status = "⏳ Mise à jour du statut de la clé en cours...".to_string();
+
+            tokio::spawn(async move {
+                // Adapte cette URL selon ce que ton ingénieur backend a défini
+                let url = format!("{}/admin/bindkeys/{}/status", url, serial);
+
+                // On convertit l'enum en String pour que le JSON soit propre
+                let status_str = match new_status {
+                    StatusBindkey::ACTIVE => "ACTIVE",
+                    StatusBindkey::RESET => "RESET",
+                    StatusBindkey::LOST => "LOST",
+                    StatusBindkey::BROKEN => "BROKEN",
+                };
+
+                // Création du payload JSON à la volée avec serde_json
+                let payload = serde_json::json!({
+                    "status": status_str
+                });
+
+                // On utilise PATCH (ou PUT selon ton backend)
+                let resultat = clone_api_client
+                    .patch(&url)
+                    .json(&payload)
+                    .bearer_auth(clone_auth_token)
+                    .send()
+                    .await;
+
+                match resultat {
+                    Ok(response) => {
+                        if response.status().is_success() {
+                            let _ = clone_sender.send(ApiMessage::BindKeyStatusUpdated);
+                        } else {
+                            let _ = clone_sender.send(ApiMessage::UpdateBindKeyError(format!(
+                                "Refus serveur: {}",
+                                response.status()
+                            )));
+                        }
+                    }
+                    Err(e) => {
+                        let _ = clone_sender.send(ApiMessage::UpdateBindKeyError(format!(
+                            "Erreur réseau: {}",
+                            e
+                        )));
+                    }
+                }
+            });
+        }
+        ApiMessage::BindKeyStatusUpdated => {
+            app.enroll_status =
+                "Le statut de la BindKey a été mis à jour avec succès !".to_string();
+
+            // 🔊 Si tu as mis en place rodio, tu peux mettre un play_success_sound() ici !
+        }
+
+        ApiMessage::UpdateBindKeyError(e) => {
+            app.enroll_status = format!("Échec de la mise à jour : {}", e);
+
+            // 🔊 play_error_sound();
+        }
+        ApiMessage::StartFormatBindKey {
+            device_path,
+            partitions,
+            port_name,
+        } => {
+            let clone_sender = app.sender.clone();
+            app.formatage_status = "Initialisation de la connexion USB...".to_string();
+
+            tokio::spawn(async move {
+                // 1. Ouverture du port série
+                // (J'ai baissé le timeout à 10s. Si la clé ne répond pas "OK" en 10s pour un init, elle a planté)
+                match serialport::new(&port_name, 115200)
+                    .timeout(std::time::Duration::from_secs(10))
+                    .open()
+                {
+                    Ok(mut port) => {
+                        let _ = port.write_data_terminal_ready(true);
+                        let _ = port.write_request_to_send(true);
+                        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+
+                        let cmd_init_format = "action=init_format\n".to_string();
+                        let _ = clone_sender.send(ApiMessage::FormatStatus(
+                            "Avertissement de la BindKey en cours...".to_string(),
+                        ));
+
+                        // 2. Envoi de l'avertissement à la puce
+                        match crate::usb_service::send_text_command(&mut *port, &cmd_init_format) {
+                            Ok(map) => {
+                                let is_ok =
+                                    map.get("STATUS").map(|val| val == "OK").unwrap_or(false);
+
+                                if is_ok {
+                                    let _ = clone_sender.send(ApiMessage::FormatStatus(
+                                        "BindKey prête. Démarrage du formatage Linux..."
+                                            .to_string(),
+                                    ));
+
+                                    // 3. Formatage de la clé USB (Le disque)
+                                    // On utilise spawn_blocking car force_format prend du temps et est synchrone
+                                    let format_result = tokio::task::spawn_blocking(move || {
+                                        // ⚠️ Remplace "crate::ton_module" par le vrai chemin vers force_format
+                                        crate::pages::volumes::force_format(
+                                            &device_path,
+                                            &partitions,
+                                        )
+                                    })
+                                    .await;
+
+                                    // Analyse du retour de force_format
+                                    match format_result {
+                                        Ok(Ok(_)) => {
+                                            let _ = clone_sender.send(ApiMessage::FormatStatus(
+                                                format!(
+                                                    "✅ Succès : La clé est vide et réinitialisée."
+                                                ),
+                                            ));
+                                        }
+                                        Ok(Err(e)) => {
+                                            let _ = clone_sender.send(ApiMessage::FormatStatus(
+                                                format!("Erreur système lors du formatage : {}", e),
+                                            ));
+                                        }
+                                        Err(e) => {
+                                            let _ = clone_sender.send(ApiMessage::FormatStatus(
+                                                format!("Erreur fatale du thread : {}", e),
+                                            ));
+                                        }
+                                    }
+                                } else {
+                                    let _ = clone_sender.send(ApiMessage::FormatStatus(
+                                        "Erreur: La puce a refusé de s'initialiser".to_string(),
+                                    ));
+                                }
+                            }
+                            Err(e) => {
+                                let _ = clone_sender.send(ApiMessage::FormatStatus(format!(
+                                    "Échec de communication USB : {}",
+                                    e
+                                )));
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        let _ = clone_sender.send(ApiMessage::FormatStatus(format!(
+                            "Impossible d'ouvrir le port USB : {}",
+                            e
+                        )));
+                    }
+                }
+            });
+        }
+
+        // Mise à jour de l'affichage dans l'UI
+        ApiMessage::FormatStatus(status) => {
+            app.formatage_status = status;
         }
         ApiMessage::LogOutSuccess => {
             app.current_page = Page::Login;

@@ -6,8 +6,8 @@ mod config;
 mod pages;
 mod protocol;
 use crate::protocol::protocol::{
-    ApiMessage, BindKeyInfo, LogOut, Page, Role, UsbDevice, User, VolumeInfo, VolumeTab,
-    create_secure_client,
+    ApiMessage, BindKeyInfo, LogOut, Page, Role, UsbDevice, User, UserWithBindKey, VolumeInfo,
+    VolumeTab, create_secure_client,
 };
 mod usb_service;
 use crate::config::AppConfig;
@@ -56,8 +56,7 @@ struct BindKeyApp {
     pub update_status: String,
     pub dashboard_volumes: Vec<VolumeInfo>,
     pub search_email_input: String,
-    pub searched_user: Option<User>,
-    pub searched_bindkey: Option<BindKeyInfo>,
+    pub search_result: Option<UserWithBindKey>,
 }
 
 impl BindKeyApp {
@@ -137,8 +136,7 @@ impl BindKeyApp {
             update_status: String::new(),
             dashboard_volumes: Vec::new(),
             search_email_input: String::new(),
-            searched_bindkey: None,
-            searched_user: None,
+            search_result: None,
         }
     }
 }
