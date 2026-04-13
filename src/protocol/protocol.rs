@@ -125,7 +125,6 @@ pub struct ModifyPayload {
 #[derive(Serialize, Deserialize, Debug)]
 pub struct VolumeInitInfo {
     pub name: String,
-    pub disk_id: String,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -145,7 +144,6 @@ pub struct VolumeInfo {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct VolumeCreatedInfo {
-    pub disk_id: String,
     pub name: String,
     pub size_bytes: u32,
     pub id: String,

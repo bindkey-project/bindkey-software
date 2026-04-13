@@ -287,7 +287,6 @@ pub fn handle_api_message(app: &mut BindKeyApp, message: ApiMessage) {
 
                     tokio::spawn(async move {
                         let payload = VolumeCreatedInfo {
-                            disk_id: clone_device_name,
                             name: clone_volume_name,
                             size_bytes: clone_volume_size,
                             id: volume_id.clone(),
@@ -631,9 +630,12 @@ pub fn handle_api_message(app: &mut BindKeyApp, message: ApiMessage) {
                         // 2. Envoi de l'avertissement à la puce
                         match crate::usb_service::send_text_command(&mut *port, &cmd_init_format) {
                             Ok(map) => {
+                                println!("{:?}", map);
                                 let is_ok =
-                                    map.get("STATUS").map(|val| val == "OK").unwrap_or(false);
-
+                                    map.get("STATUS").map(|val| val.contains("OK")).unwrap_or(false);
+                                if let Some(val) = map.get("STATUS") {
+                                    println!(">> OCTETS RECUS : {:?}", val.as_bytes());
+                                }
                                 if is_ok {
                                     let _ = clone_sender.send(ApiMessage::FormatStatus(
                                         "BindKey prête. Démarrage du formatage Linux..."

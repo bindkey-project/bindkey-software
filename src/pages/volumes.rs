@@ -448,7 +448,6 @@ pub fn show_volumes_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
                                         let clone_sender = app.sender.clone();
                                         let clone_volume_name = app.volume_created_name.clone();
                                         let clone_volume_size = app.volume_created_size;
-                                        let clone_device_name = app.device_name.clone();
                                         let clone_url = app.config.api_url.clone();
                                         let clone_auth_token = app.server_token.clone();
                                         let clone_port_name = app.current_port_name.clone();
@@ -469,12 +468,11 @@ pub fn show_volumes_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
                                                 let count = SIMU_VOLUME_COUNTER.fetch_add(1, Ordering::SeqCst);
 
                                                 // On génère une chaîne unique : ID-SIMULATION-00001, ID-SIMULATION-00002...
-                                                format!("ID-SIMULATION-{:05}", count)
+                                                format!("ID-SIMU-{:05}", count)
                                             } else {
                                                 let url = format!("{}/verify_volume", clone_url);
                                                 let payload = VolumeInitInfo {
                                                     name: clone_volume_name.clone(),
-                                                    disk_id: clone_device_name,
                                                 };
 
                                                 let resultat = clone_api_client.post(url).json(&payload).bearer_auth(clone_auth_token).send().await;
@@ -523,14 +521,14 @@ pub fn show_volumes_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
                                                     clone_volume_size as f64,
                                                     &volume_name_for_thread,
                                                     &volume_id_for_thread,
-                                                    &port_name_for_thread,
+                                                    &port_name_for_thread
                                                 )
                                             }).await.unwrap_or_else(|e| Err(format!("Erreur critique du thread OS : {}", e)));
 
                                             // =========================================================
                                             // 3. RETOUR D'ÉTAT
                                             // =========================================================
-                                            match partition_result {
+                                             match partition_result {
                                                 Ok((_start_sec, _end_sec, num_partition)) => {
                                                     let _ = clone_sender.send(ApiMessage::VolumeCreationStatus("✅ Volume créé et synchronisé avec succès !".to_string()));
 
@@ -638,24 +636,19 @@ pub fn show_volumes_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
 // =================================================================
 
 // ⚠️ N'oublie pas d'ajouter port_name dans les paramètres lors de l'appel !
-fn create_and_format_partition(
+pub fn create_and_format_partition(
     device_path: &str,
     size_gb: f64,
     volume_name: &str,
-    volume_id: &str,
-    port_name: &str,
+    volume_id: &str, // 🟢 RÉINTÉGRÉ
+    port_name: &str, // 🟢 RÉINTÉGRÉ
 ) -> Result<(u64, u64, String), String> {
+    
+    // =========================================================
+    // 1. LECTURE DE L'ESPACE LIBRE (L'Architecte)
+    // =========================================================
     let output = Command::new("/usr/bin/pkexec")
-        .args([
-            "/usr/sbin/parted",
-            "-s",
-            "-m",
-            device_path,
-            "unit",
-            "s",
-            "print",
-            "free",
-        ])
+        .args(["/usr/sbin/parted", "-s", "-m", device_path, "unit", "s", "print", "free"])
         .output()
         .map_err(|e| format!("Erreur parted: {}", e))?;
 
@@ -677,7 +670,9 @@ fn create_and_format_partition(
                         actual_start = 2048;
                     }
 
-                    if size >= target_sectors {
+                    // On vérifie qu'on a la place même avec l'alignement
+                    let shift = actual_start.saturating_sub(start);
+                    if size > shift && (size - shift) >= target_sectors {
                         start_sector = Some(actual_start);
                         end_sector = Some(actual_start + target_sectors - 1);
                         break;
@@ -691,10 +686,10 @@ fn create_and_format_partition(
     let end = end_sector.unwrap();
 
     // =========================================================
-    // 🟢 NOUVEAU BLOC : Envoi des secteurs à la BindKey
+    // 🟢 2. COMMUNICATION USB : PRÉPARATION DE LA BINDKEY
     // =========================================================
     {
-        // On ouvre le port de manière synchrone (pas de .await ici car on est hors de tokio)
+        println!("Ouverture du port USB pour envoyer les LBA...");
         let mut port = serialport::new(port_name, 115200)
             .timeout(Duration::from_secs(5))
             .open()
@@ -704,7 +699,6 @@ fn create_and_format_partition(
         let _ = port.write_request_to_send(true);
         thread::sleep(Duration::from_millis(500));
 
-        // 🎯 TON NOUVEAU FORMAT EXACT
         let cmd_sectors = format!(
             "volume_name={}\nvolume_id={}\nlba_start={}\nlba_end={}\n",
             volume_name, volume_id, start, end
@@ -712,14 +706,13 @@ fn create_and_format_partition(
 
         let mut is_ready = false;
         let mut tentatives = 0;
-        let max_tentatives = 5;
 
-        // 🔄 TANT QUE ce n'est pas prêt ET qu'on n'a pas dépassé la limite
-        while !is_ready && tentatives < max_tentatives {
+        // Boucle de résilience avec le fix .contains("OK")
+        while !is_ready && tentatives < 5 {
             match crate::usb_service::send_text_command(&mut *port, &cmd_sectors) {
                 Ok(map) => {
-                    if map.get("STATUS").map(|val| val == "OK").unwrap_or(false) {
-                        is_ready = true; // ✅ La puce a enregistré les LBA !
+                    if map.get("STATUS").map(|val| val.contains("OK")).unwrap_or(false) {
+                        is_ready = true; // La puce est prête à chiffrer !
                     } else {
                         tentatives += 1;
                         thread::sleep(Duration::from_millis(1000));
@@ -732,104 +725,89 @@ fn create_and_format_partition(
             }
         }
 
-        // 🛑 VÉRIFICATION FINALE AVANT FORMATAGE
+        // Si la clé refuse, on annule. Rien n'a été écrit sur l'OS, c'est propre !
         if !is_ready {
-            return Err(
-                "La BindKey n'a pas confirmé l'enregistrement des secteurs LBA. Formatage annulé."
-                    .to_string(),
-            );
+            return Err("La BindKey n'a pas confirmé l'enregistrement des secteurs LBA.".to_string());
         }
-    } // Le port série se ferme proprement et automatiquement à la fin de ce bloc `{ ... }`
-    // =========================================================
+    } // Le port USB se ferme automatiquement ici
 
+    // =========================================================
+    // 3. CRÉATION PHYSIQUE (Maintenant que la puce écoute)
+    // =========================================================
+    println!("BindKey prête. Création de la partition OS...");
     let status_mkpart = Command::new("/usr/bin/pkexec")
         .args([
-            "/usr/sbin/parted",
-            "-s",
-            "-a",
-            "optimal",
-            device_path,
-            "unit",
-            "s",
-            "mkpart",
-            "primary",
-            "fat32",
-            &format!("{}s", start),
-            &format!("{}s", end),
+            "/usr/sbin/parted", "-s", "-a", "optimal", 
+            device_path, "unit", "s", "mkpart", "primary", "fat32",
+            &format!("{}s", start), &format!("{}s", end),
         ])
         .status()
-        .map_err(|e| format!("Erreur mkpart: {}", e))?;
+        .map_err(|e| format!("Erreur lancement mkpart: {}", e))?;
 
     if !status_mkpart.success() {
-        return Err("parted a refusé de créer la partition.".to_string());
+        return Err("Échec de la commande parted mkpart.".to_string());
     }
 
-    let _ = Command::new("/usr/sbin/partprobe")
-        .arg(device_path)
-        .output();
+    let _ = Command::new("/usr/sbin/partprobe").arg(device_path).output();
     let _ = Command::new("/usr/bin/udevadm").arg("settle").output();
-
+    
     thread::sleep(Duration::from_millis(2000));
 
+    // =========================================================
+    // 4. RÉCUPÉRATION DE L'ID
+    // =========================================================
     let output_post = Command::new("/usr/bin/pkexec")
-        .args([
-            "/usr/sbin/parted",
-            "-s",
-            "-m",
-            device_path,
-            "unit",
-            "s",
-            "print",
-        ])
+        .args(["/usr/sbin/parted", "-s", "-m", device_path, "unit", "s", "print"])
         .output()
         .map_err(|e| format!("Erreur de vérification: {}", e))?;
 
     let stdout_post = String::from_utf8_lossy(&output_post.stdout);
     let mut partition_id = String::new();
-
+    
     for line in stdout_post.lines() {
-        if line.contains(&format!(":{}s:", start)) {
-            if let Some(id) = line.split(':').next() {
-                partition_id = id.to_string();
-                break;
-            }
+        let parts: Vec<&str> = line.split(':').collect();
+        if parts.len() >= 2 && parts[1] == format!("{}s", start) {
+            partition_id = parts[0].to_string();
+            break;
         }
     }
 
     if partition_id.is_empty() {
-        return Err("Partition créée mais introuvable par le système.".to_string());
+        return Err("Partition créée, mais impossible de trouver son ID.".to_string());
     }
 
-    let part_suffix = if device_path.chars().last().unwrap_or('a').is_ascii_digit() {
-        format!("p{}", partition_id)
+    let partition_path = if device_path.chars().last().unwrap_or('a').is_ascii_digit() {
+        format!("{}p{}", device_path, partition_id)
     } else {
-        partition_id.clone()
+        format!("{}{}", device_path, partition_id)
     };
-    let partition_path = format!("{}{}", device_path, part_suffix);
 
+    let safe_volume_name: String = volume_name.to_uppercase().chars().take(11).collect();
+
+    // =========================================================
+    // 5. FORMATAGE (Là où la magie du chiffrement opère)
+    // =========================================================
     let _ = Command::new("/usr/bin/udisksctl")
         .args(["unmount", "-f", "-b", &partition_path])
         .output();
 
-    let safe_volume_name: String = volume_name.to_uppercase().chars().take(11).collect();
-
-    let script_formatage = format!(
-        "/usr/sbin/wipefs -a {0} && /usr/sbin/mkfs.vfat -I -F 32 -n '{1}' {0} && sync",
-        partition_path, safe_volume_name
-    );
+    let _ = Command::new("/usr/bin/pkexec")
+        .args(["/usr/sbin/wipefs", "-a", &partition_path])
+        .status();
 
     let status_format = Command::new("/usr/bin/pkexec")
-        .args(["bash", "-c", &script_formatage])
+        .args([
+            "/usr/bin/mkfs.vfat", "-I", "-F", "32", 
+            "-n", &safe_volume_name, &partition_path,
+        ])
         .status()
-        .map_err(|e| format!("Erreur lors de l'exécution du bloc de formatage: {}", e))?;
+        .map_err(|e| format!("Erreur lancement mkfs.vfat: {}", e))?;
 
     if status_format.success() {
-        Ok((start, end, partition_id))
+        let _ = Command::new("sync").status();
+        Ok((start, end, partition_id)) // Tout est parfait !
     } else {
-        Err(format!(
-            "Le formatage de {} a échoué (IO Error ou annulation de l'utilisateur).",
-            partition_path
-        ))
+        Err(format!("Le formatage de {} a échoué (IO Error possible).", partition_path))
     }
 }
 

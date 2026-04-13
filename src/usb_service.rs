@@ -42,7 +42,14 @@ pub fn send_text_command(
                     } else if line.starts_with("ERR=") {
                         return Err(format!("Erreur Clé : {}", &line[4..]));
                     } else if let Some((key, value)) = line.split_once('=') {
-                        results.insert(key.to_string(), value.to_string());
+                        let clean_key = key.trim().to_string();
+                        let clean_val = value.trim().trim_matches('\0').to_string();
+                        
+                        results.insert(clean_key.to_string(), clean_val.to_string());
+
+                        if clean_key == "STATUS" {
+                            return Ok(results); // On rend la main au programme principal !
+                        }
                     }
                 } else {
                     buffer.push(c);
