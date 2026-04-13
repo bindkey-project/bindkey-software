@@ -44,7 +44,7 @@ pub fn send_text_command(
                     } else if let Some((key, value)) = line.split_once('=') {
                         let clean_key = key.trim().to_string();
                         let clean_val = value.trim().trim_matches('\0').to_string();
-                        
+
                         results.insert(clean_key.to_string(), clean_val.to_string());
 
                         if clean_key == "STATUS" {

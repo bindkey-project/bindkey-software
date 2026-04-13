@@ -631,8 +631,10 @@ pub fn handle_api_message(app: &mut BindKeyApp, message: ApiMessage) {
                         match crate::usb_service::send_text_command(&mut *port, &cmd_init_format) {
                             Ok(map) => {
                                 println!("{:?}", map);
-                                let is_ok =
-                                    map.get("STATUS").map(|val| val.contains("OK")).unwrap_or(false);
+                                let is_ok = map
+                                    .get("STATUS")
+                                    .map(|val| val.contains("OK"))
+                                    .unwrap_or(false);
                                 if let Some(val) = map.get("STATUS") {
                                     println!(">> OCTETS RECUS : {:?}", val.as_bytes());
                                 }

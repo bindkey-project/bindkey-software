@@ -643,12 +643,20 @@ pub fn create_and_format_partition(
     volume_id: &str, // 🟢 RÉINTÉGRÉ
     port_name: &str, // 🟢 RÉINTÉGRÉ
 ) -> Result<(u64, u64, String), String> {
-    
     // =========================================================
     // 1. LECTURE DE L'ESPACE LIBRE (L'Architecte)
     // =========================================================
     let output = Command::new("/usr/bin/pkexec")
-        .args(["/usr/sbin/parted", "-s", "-m", device_path, "unit", "s", "print", "free"])
+        .args([
+            "/usr/sbin/parted",
+            "-s",
+            "-m",
+            device_path,
+            "unit",
+            "s",
+            "print",
+            "free",
+        ])
         .output()
         .map_err(|e| format!("Erreur parted: {}", e))?;
 
@@ -711,7 +719,11 @@ pub fn create_and_format_partition(
         while !is_ready && tentatives < 5 {
             match crate::usb_service::send_text_command(&mut *port, &cmd_sectors) {
                 Ok(map) => {
-                    if map.get("STATUS").map(|val| val.contains("OK")).unwrap_or(false) {
+                    if map
+                        .get("STATUS")
+                        .map(|val| val.contains("OK"))
+                        .unwrap_or(false)
+                    {
                         is_ready = true; // La puce est prête à chiffrer !
                     } else {
                         tentatives += 1;
@@ -727,7 +739,9 @@ pub fn create_and_format_partition(
 
         // Si la clé refuse, on annule. Rien n'a été écrit sur l'OS, c'est propre !
         if !is_ready {
-            return Err("La BindKey n'a pas confirmé l'enregistrement des secteurs LBA.".to_string());
+            return Err(
+                "La BindKey n'a pas confirmé l'enregistrement des secteurs LBA.".to_string(),
+            );
         }
     } // Le port USB se ferme automatiquement ici
 
@@ -737,9 +751,18 @@ pub fn create_and_format_partition(
     println!("BindKey prête. Création de la partition OS...");
     let status_mkpart = Command::new("/usr/bin/pkexec")
         .args([
-            "/usr/sbin/parted", "-s", "-a", "optimal", 
-            device_path, "unit", "s", "mkpart", "primary", "fat32",
-            &format!("{}s", start), &format!("{}s", end),
+            "/usr/sbin/parted",
+            "-s",
+            "-a",
+            "optimal",
+            device_path,
+            "unit",
+            "s",
+            "mkpart",
+            "primary",
+            "fat32",
+            &format!("{}s", start),
+            &format!("{}s", end),
         ])
         .status()
         .map_err(|e| format!("Erreur lancement mkpart: {}", e))?;
@@ -748,22 +771,32 @@ pub fn create_and_format_partition(
         return Err("Échec de la commande parted mkpart.".to_string());
     }
 
-    let _ = Command::new("/usr/sbin/partprobe").arg(device_path).output();
+    let _ = Command::new("/usr/sbin/partprobe")
+        .arg(device_path)
+        .output();
     let _ = Command::new("/usr/bin/udevadm").arg("settle").output();
-    
+
     thread::sleep(Duration::from_millis(2000));
 
     // =========================================================
     // 4. RÉCUPÉRATION DE L'ID
     // =========================================================
     let output_post = Command::new("/usr/bin/pkexec")
-        .args(["/usr/sbin/parted", "-s", "-m", device_path, "unit", "s", "print"])
+        .args([
+            "/usr/sbin/parted",
+            "-s",
+            "-m",
+            device_path,
+            "unit",
+            "s",
+            "print",
+        ])
         .output()
         .map_err(|e| format!("Erreur de vérification: {}", e))?;
 
     let stdout_post = String::from_utf8_lossy(&output_post.stdout);
     let mut partition_id = String::new();
-    
+
     for line in stdout_post.lines() {
         let parts: Vec<&str> = line.split(':').collect();
         if parts.len() >= 2 && parts[1] == format!("{}s", start) {
@@ -797,8 +830,13 @@ pub fn create_and_format_partition(
 
     let status_format = Command::new("/usr/bin/pkexec")
         .args([
-            "/usr/bin/mkfs.vfat", "-I", "-F", "32", 
-            "-n", &safe_volume_name, &partition_path,
+            "/usr/bin/mkfs.vfat",
+            "-I",
+            "-F",
+            "32",
+            "-n",
+            &safe_volume_name,
+            &partition_path,
         ])
         .status()
         .map_err(|e| format!("Erreur lancement mkfs.vfat: {}", e))?;
@@ -807,7 +845,10 @@ pub fn create_and_format_partition(
         let _ = Command::new("sync").status();
         Ok((start, end, partition_id)) // Tout est parfait !
     } else {
-        Err(format!("Le formatage de {} a échoué (IO Error possible).", partition_path))
+        Err(format!(
+            "Le formatage de {} a échoué (IO Error possible).",
+            partition_path
+        ))
     }
 }
 
