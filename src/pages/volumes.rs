@@ -470,7 +470,7 @@ pub fn show_volumes_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
                                                 // On génère une chaîne unique : ID-SIMULATION-00001, ID-SIMULATION-00002...
                                                 format!("ID-SIMU-{:05}", count)
                                             } else {
-                                                let url = format!("{}/verify_volume", clone_url);
+                                                let url = format!("{}/volumes/verify", clone_url);
                                                 let payload = VolumeInitInfo {
                                                     name: clone_volume_name.clone(),
                                                 };
@@ -479,7 +479,9 @@ pub fn show_volumes_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
 
                                                 match resultat {
                                                     Ok(response) if response.status().is_success() => {
+                                                        println!("{:?}", response);
                                                         if let Ok(data) = response.json::<VolumeInitResponse>().await {
+                                                            
                                                             if data.exists {
                                                                 let _ = clone_sender.send(ApiMessage::VolumeCreationStatus(format!("Erreur : le volume '{}' existe déjà", clone_volume_name)));
                                                                 return;
@@ -640,61 +642,71 @@ pub fn create_and_format_partition(
     device_path: &str,
     size_gb: f64,
     volume_name: &str,
-    volume_id: &str, // 🟢 RÉINTÉGRÉ
-    port_name: &str, // 🟢 RÉINTÉGRÉ
+    volume_id: &str,
+    port_name: &str,
 ) -> Result<(u64, u64, String), String> {
+    
     // =========================================================
-    // 1. LECTURE DE L'ESPACE LIBRE (L'Architecte)
+    // FIX 1 : FORCER LA LECTURE DU CACHE AVANT LE CALCUL (LBA)
+    // =========================================================
+    // Indispensable pour éviter que Linux ne mente et redonne toujours le LBA 2048
+   // =========================================================
+    // 0. FORCER LE KERNEL À OUVRIR LES YEUX
+    // =========================================================
+    // Indispensable pour que Linux arrête de croire que la clé est vide
+  let _ = Command::new("/usr/bin/pkexec").args(["partprobe", device_path]).output();
+    let _ = Command::new("/usr/bin/udevadm").arg("settle").output();
+
+    // =========================================================
+    // 1. LECTURE DE L'ESPACE LIBRE
     // =========================================================
     let output = Command::new("/usr/bin/pkexec")
-        .args([
-            "/usr/sbin/parted",
-            "-s",
-            "-m",
-            device_path,
-            "unit",
-            "s",
-            "print",
-            "free",
-        ])
+        .args(["parted", "-s", "-m", device_path, "unit", "s", "print"])
         .output()
         .map_err(|e| format!("Erreur parted: {}", e))?;
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    let target_sectors = (size_gb * 1024.0 * 1024.0 * 1024.0 / 512.0) as u64;
-    let mut start_sector = None;
-    let mut end_sector = None;
 
+    // 🟢=== LE DÉBOGAGE EST ICI ===🟢
+    println!("=== DEBUG SORTIE PARTED ===\n{}\n=========================", stdout);
+    
+    let mut max_end_sector: u64 = 0;
+
+    // A. On scanne la clé pour trouver où se termine le tout dernier volume
     for line in stdout.lines() {
-        if line.ends_with("free;") {
-            let parts: Vec<&str> = line.split(':').collect();
-            if parts.len() >= 4 {
-                let start_str = parts[1].trim_end_matches('s');
-                let size_str = parts[3].trim_end_matches('s');
-
-                if let (Ok(start), Ok(size)) = (start_str.parse::<u64>(), size_str.parse::<u64>()) {
-                    let mut actual_start = start;
-                    if actual_start < 2048 {
-                        actual_start = 2048;
-                    }
-
-                    // On vérifie qu'on a la place même avec l'alignement
-                    let shift = actual_start.saturating_sub(start);
-                    if size > shift && (size - shift) >= target_sectors {
-                        start_sector = Some(actual_start);
-                        end_sector = Some(actual_start + target_sectors - 1);
-                        break;
-                    }
+        let parts: Vec<&str> = line.split(':').collect();
+        // Les partitions commencent par un numéro (ex: 1:2048s:2099199s:...)
+        if parts.len() >= 4 && parts[0].parse::<u32>().is_ok() {
+            if let Ok(end) = parts[2].trim_end_matches('s').parse::<u64>() {
+                if end > max_end_sector {
+                    max_end_sector = end; // On sauvegarde la fin la plus lointaine
                 }
             }
         }
     }
 
-    let start = start_sector.ok_or("Espace libre insuffisant sur la clé.")?;
-    let end = end_sector.unwrap();
+    // B. Le point de départ est juste après le dernier volume !
+    let mut start_sector = if max_end_sector == 0 {
+        2048 // S'il n'y a aucun volume (clé vide), on commence à 2048
+    } else {
+        max_end_sector + 1 // Sinon, on commence au secteur suivant
+    };
 
+    // C. Alignement obligatoire sur 1 Mo (2048 secteurs)
+    let remainder = start_sector % 2048;
+    if remainder != 0 {
+        start_sector += 2048 - remainder;
+    }
+
+    // D. Calcul de la taille finale (arrondie au Mo inférieur)
+    let target_sectors = (size_gb * 1024.0 * 1024.0 * 1024.0 / 512.0) as u64;
+    let mut final_target = target_sectors;
+    final_target -= final_target % 2048;
+
+    let start = start_sector;
+    let end = start_sector + final_target - 1;
     // =========================================================
-    // 🟢 2. COMMUNICATION USB : PRÉPARATION DE LA BINDKEY
+    // 2. COMMUNICATION USB (LBA -> BindKey)
     // =========================================================
     {
         println!("Ouverture du port USB pour envoyer les LBA...");
@@ -715,16 +727,11 @@ pub fn create_and_format_partition(
         let mut is_ready = false;
         let mut tentatives = 0;
 
-        // Boucle de résilience avec le fix .contains("OK")
         while !is_ready && tentatives < 5 {
             match crate::usb_service::send_text_command(&mut *port, &cmd_sectors) {
                 Ok(map) => {
-                    if map
-                        .get("STATUS")
-                        .map(|val| val.contains("OK"))
-                        .unwrap_or(false)
-                    {
-                        is_ready = true; // La puce est prête à chiffrer !
+                    if map.get("STATUS").map(|val| val.contains("OK")).unwrap_or(false) {
+                        is_ready = true;
                     } else {
                         tentatives += 1;
                         thread::sleep(Duration::from_millis(1000));
@@ -737,30 +744,33 @@ pub fn create_and_format_partition(
             }
         }
 
-        // Si la clé refuse, on annule. Rien n'a été écrit sur l'OS, c'est propre !
         if !is_ready {
-            return Err(
-                "La BindKey n'a pas confirmé l'enregistrement des secteurs LBA.".to_string(),
-            );
+            return Err("La BindKey n'a pas confirmé l'enregistrement des secteurs LBA.".to_string());
         }
-    } // Le port USB se ferme automatiquement ici
-    println!("BindKey prête. Exécution du script de création global...");
+    } // Le port USB se ferme ici
 
+    // =========================================================
+    // 3. CRÉATION PHYSIQUE EXACTE (Script Bash calqué sur le terminal)
+    // =========================================================
+    println!("BindKey prête. Lancement des commandes OS...");
+    
     let safe_volume_name: String = volume_name.to_uppercase().chars().take(11).collect();
 
     let script_creation = format!(
         r#"
-        set -e # Arrête le script en cas d'erreur critique
+        set -e
 
-        # A. Création de la partition
+        # 1. Création de la partition
         /usr/sbin/parted -s -a optimal {device} unit s mkpart primary fat32 {start}s {end}s
         
-        # B. Synchronisation forcée (Évite les I/O errors)
+        # 2. Rafraîchissement du noyau EXACTEMENT comme dans le terminal
         /usr/sbin/partprobe {device} || true
         /usr/bin/udevadm settle
+        
+        # Pause vitale pour que l'exécutable Rust ne rattrape pas Linux
         sleep 2
 
-        # C. Récupération dynamique de l'ID de la nouvelle partition
+        # 3. parted print pour trouver l'ID (ex: sda1 ou sda2)
         PART_ID=$(/usr/sbin/parted -s -m {device} unit s print | awk -F':' '$2 == "{start}s" {{print $1}}')
         
         if [ -z "$PART_ID" ]; then
@@ -774,14 +784,22 @@ pub fn create_and_format_partition(
             PART_PATH="{device}$PART_ID"
         fi
 
-        # D. Nettoyage et Formatage
+        # 4. wipefs et mkfs.vfat EXACTEMENT comme dans le terminal
         /usr/bin/udisksctl unmount -f -b "$PART_PATH" 2>/dev/null || true
         /usr/sbin/wipefs -a "$PART_PATH"
-        sleep 1
         /usr/sbin/mkfs.vfat -I -F 32 -n '{vol_name}' "$PART_PATH"
+        
+        # 5. sync
         sync
 
-        # E. Retour de l'ID à Rust
+        # ==========================================================
+        # FIX 2 : FORCER KALI LINUX À LIRE LE NOUVEAU NOM DU VOLUME
+        # ==========================================================
+        /usr/sbin/partprobe "$PART_PATH" || true
+        /usr/bin/udevadm settle
+        sleep 1
+
+        # Retour de l'ID à Rust
         echo "SUCCES:$PART_ID"
         "#,
         device = device_path,
@@ -790,7 +808,7 @@ pub fn create_and_format_partition(
         vol_name = safe_volume_name
     );
 
-    // Un seul appel Administrateur = Une seule demande de mot de passe !
+    // Exécution du script avec les droits root (un seul pop-up !)
     let output_creation = Command::new("/usr/bin/pkexec")
         .args(["bash", "-c", &script_creation])
         .output()

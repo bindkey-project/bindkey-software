@@ -311,14 +311,14 @@ pub fn handle_api_message(app: &mut BindKeyApp, message: ApiMessage) {
                                             response.status()
                                         ),
                                     ));
-
+/* 
                                     rollback_physical_volume(
                                         &device_path,
                                         &partition_number,
                                         &clone_port,
                                         &volume_id,
                                     );
-
+*/
                                     let _ = clone_sender.send(ApiMessage::VolumeCreationStatus(
                                         "Volume annulé proprement suite à l'erreur serveur."
                                             .to_string(),
@@ -331,14 +331,14 @@ pub fn handle_api_message(app: &mut BindKeyApp, message: ApiMessage) {
                                         "Erreur Réseau : {}. Suppression du volume en cours...",
                                         e
                                     )));
-
+/* 
                                 rollback_physical_volume(
                                     &device_path,
                                     &partition_number,
                                     &clone_port,
                                     &volume_id,
                                 );
-
+*/
                                 let _ = clone_sender.send(ApiMessage::VolumeCreationStatus(
                                     "Volume annulé proprement suite à la coupure réseau."
                                         .to_string(),
