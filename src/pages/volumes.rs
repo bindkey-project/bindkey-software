@@ -744,113 +744,84 @@ pub fn create_and_format_partition(
             );
         }
     } // Le port USB se ferme automatiquement ici
+    println!("BindKey prête. Exécution du script de création global...");
+    
+    let safe_volume_name: String = volume_name.to_uppercase().chars().take(11).collect();
 
-    // =========================================================
-    // 3. CRÉATION PHYSIQUE (Maintenant que la puce écoute)
-    // =========================================================
-    println!("BindKey prête. Création de la partition OS...");
-    let status_mkpart = Command::new("/usr/bin/pkexec")
-        .args([
-            "/usr/sbin/parted",
-            "-s",
-            "-a",
-            "optimal",
-            device_path,
-            "unit",
-            "s",
-            "mkpart",
-            "primary",
-            "fat32",
-            &format!("{}s", start),
-            &format!("{}s", end),
-        ])
-        .status()
-        .map_err(|e| format!("Erreur lancement mkpart: {}", e))?;
+    let script_creation = format!(
+        r#"
+        set -e # Arrête le script en cas d'erreur critique
 
-    if !status_mkpart.success() {
-        return Err("Échec de la commande parted mkpart.".to_string());
+        # A. Création de la partition
+        /usr/sbin/parted -s -a optimal {device} unit s mkpart primary fat32 {start}s {end}s
+        
+        # B. Synchronisation forcée (Évite les I/O errors)
+        /usr/sbin/partprobe {device} || true
+        /usr/bin/udevadm settle
+        sleep 2
+
+        # C. Récupération dynamique de l'ID de la nouvelle partition
+        PART_ID=$(/usr/sbin/parted -s -m {device} unit s print | awk -F':' '$2 == "{start}s" {{print $1}}')
+        
+        if [ -z "$PART_ID" ]; then
+            echo "ERREUR_ID"
+            exit 1
+        fi
+
+        if [[ "{device}" =~ [0-9]$ ]]; then
+            PART_PATH="{device}p$PART_ID"
+        else
+            PART_PATH="{device}$PART_ID"
+        fi
+
+        # D. Nettoyage et Formatage
+        /usr/bin/udisksctl unmount -f -b "$PART_PATH" 2>/dev/null || true
+        /usr/sbin/wipefs -a "$PART_PATH"
+        sleep 1
+        /usr/sbin/mkfs.vfat -I -F 32 -n '{vol_name}' "$PART_PATH"
+        sync
+
+        # E. Retour de l'ID à Rust
+        echo "SUCCES:$PART_ID"
+        "#,
+        device = device_path,
+        start = start,
+        end = end,
+        vol_name = safe_volume_name
+    );
+
+    // Un seul appel Administrateur = Une seule demande de mot de passe !
+    let output_creation = Command::new("/usr/bin/pkexec")
+        .args(["bash", "-c", &script_creation])
+        .output()
+        .map_err(|e| format!("Échec de l'appel système global: {}", e))?;
+
+    let stdout = String::from_utf8_lossy(&output_creation.stdout);
+    let stderr = String::from_utf8_lossy(&output_creation.stderr);
+
+    // Vérification des erreurs
+    if !output_creation.status.success() || stdout.contains("ERREUR_ID") {
+        return Err(format!(
+            "L'OS a refusé de créer ou formater la partition.\nRaison : {}",
+            stderr
+        ));
     }
 
-    let _ = Command::new("/usr/sbin/partprobe")
-        .arg(device_path)
-        .output();
-    let _ = Command::new("/usr/bin/udevadm").arg("settle").output();
-
-    thread::sleep(Duration::from_millis(2000));
-
-    // =========================================================
-    // 4. RÉCUPÉRATION DE L'ID
-    // =========================================================
-    let output_post = Command::new("/usr/bin/pkexec")
-        .args([
-            "/usr/sbin/parted",
-            "-s",
-            "-m",
-            device_path,
-            "unit",
-            "s",
-            "print",
-        ])
-        .output()
-        .map_err(|e| format!("Erreur de vérification: {}", e))?;
-
-    let stdout_post = String::from_utf8_lossy(&output_post.stdout);
+    // Extraction de l'ID de la partition depuis le retour Bash
     let mut partition_id = String::new();
-
-    for line in stdout_post.lines() {
-        let parts: Vec<&str> = line.split(':').collect();
-        if parts.len() >= 2 && parts[1] == format!("{}s", start) {
-            partition_id = parts[0].to_string();
-            break;
+    for line in stdout.lines() {
+        if line.starts_with("SUCCES:") {
+            partition_id = line.replace("SUCCES:", "").trim().to_string();
         }
     }
 
     if partition_id.is_empty() {
-        return Err("Partition créée, mais impossible de trouver son ID.".to_string());
+        return Err("Création réussie, mais impossible de lire l'ID de retour.".to_string());
     }
 
-    let partition_path = if device_path.chars().last().unwrap_or('a').is_ascii_digit() {
-        format!("{}p{}", device_path, partition_id)
-    } else {
-        format!("{}{}", device_path, partition_id)
-    };
-
-    let safe_volume_name: String = volume_name.to_uppercase().chars().take(11).collect();
-
-    // =========================================================
-    // 5. FORMATAGE (Là où la magie du chiffrement opère)
-    // =========================================================
-    let _ = Command::new("/usr/bin/udisksctl")
-        .args(["unmount", "-f", "-b", &partition_path])
-        .output();
-
-    let _ = Command::new("/usr/bin/pkexec")
-        .args(["/usr/sbin/wipefs", "-a", &partition_path])
-        .status();
-
-    let status_format = Command::new("/usr/bin/pkexec")
-        .args([
-            "/usr/bin/mkfs.vfat",
-            "-I",
-            "-F",
-            "32",
-            "-n",
-            &safe_volume_name,
-            &partition_path,
-        ])
-        .status()
-        .map_err(|e| format!("Erreur lancement mkfs.vfat: {}", e))?;
-
-    if status_format.success() {
-        let _ = Command::new("sync").status();
-        Ok((start, end, partition_id)) // Tout est parfait !
-    } else {
-        Err(format!(
-            "Le formatage de {} a échoué (IO Error possible).",
-            partition_path
-        ))
-    }
+    Ok((start, end, partition_id))
 }
+    
 
 pub fn force_format(device_path: &str, partitions: &Vec<String>) -> Result<(), String> {
     // 1. Démonter toutes les partitions existantes (sda1, sda2...)
@@ -954,3 +925,116 @@ pub fn rollback_physical_volume(
         .output();
     let _ = Command::new("/usr/bin/udevadm").arg("settle").output();
 }
+
+/* 
+// =========================================================
+    // 3. CRÉATION PHYSIQUE (Maintenant que la puce écoute)
+    // =========================================================
+    println!("BindKey prête. Création de la partition OS...");
+    let status_mkpart = Command::new("/usr/bin/pkexec")
+        .args([
+            "/usr/sbin/parted",
+            "-s",
+            "-a",
+            "optimal",
+            device_path,
+            "unit",
+            "s",
+            "mkpart",
+            "primary",
+            "fat32",
+            &format!("{}s", start),
+            &format!("{}s", end),
+        ])
+        .status()
+        .map_err(|e| format!("Erreur lancement mkpart: {}", e))?;
+
+    if !status_mkpart.success() {
+        return Err("Échec de la commande parted mkpart.".to_string());
+    }
+
+    let _ = Command::new("/usr/sbin/partprobe")
+        .arg(device_path)
+        .output();
+    let _ = Command::new("/usr/bin/udevadm").arg("settle").output();
+
+    thread::sleep(Duration::from_millis(2000));
+
+    // =========================================================
+    // 4. RÉCUPÉRATION DE L'ID
+    // =========================================================
+    let output_post = Command::new("/usr/bin/pkexec")
+        .args([
+            "/usr/sbin/parted",
+            "-s",
+            "-m",
+            device_path,
+            "unit",
+            "s",
+            "print",
+        ])
+        .output()
+        .map_err(|e| format!("Erreur de vérification: {}", e))?;
+
+    let stdout_post = String::from_utf8_lossy(&output_post.stdout);
+    let mut partition_id = String::new();
+
+    for line in stdout_post.lines() {
+        let parts: Vec<&str> = line.split(':').collect();
+        if parts.len() >= 2 && parts[1] == format!("{}s", start) {
+            partition_id = parts[0].to_string();
+            break;
+        }
+    }
+
+    if partition_id.is_empty() {
+        return Err("Partition créée, mais impossible de trouver son ID.".to_string());
+    }
+
+    let partition_path = if device_path.chars().last().unwrap_or('a').is_ascii_digit() {
+        format!("{}p{}", device_path, partition_id)
+    } else {
+        format!("{}{}", device_path, partition_id)
+    };
+
+    let safe_volume_name: String = volume_name.to_uppercase().chars().take(11).collect();
+
+    // =========================================================
+    // 5. FORMATAGE (Là où la magie du chiffrement opère)
+    // =========================================================
+    let _ = Command::new("/usr/bin/udisksctl")
+        .args(["unmount", "-f", "-b", &partition_path])
+        .output();
+
+    let _ = Command::new("/usr/bin/pkexec")
+        .args(["/usr/sbin/wipefs", "-a", &partition_path])
+        .status();
+
+    thread::sleep(Duration::from_millis(1000));
+
+    let output_format = Command::new("/usr/bin/pkexec")
+        .args([
+            // Sur Kali et Debian, mkfs.vfat est très souvent dans /usr/sbin/ ou /sbin/, pas dans /usr/bin/ !
+            "/usr/sbin/mkfs.vfat", 
+            "-I",
+            "-F",
+            "32",
+            "-n",
+            &safe_volume_name,
+            &partition_path,
+        ])
+        .output() // 🟢 FIX : On utilise output() au lieu de status()
+        .map_err(|e| format!("Erreur fatale d'exécution de la commande: {}", e))?;
+
+    if output_format.status.success() {
+        let _ = Command::new("sync").status();
+        Ok((start, end, partition_id)) // Tout est parfait !
+    } else {
+        // 🟢 FIX : On extrait la VRAIE erreur envoyée par l'OS
+        let stderr = String::from_utf8_lossy(&output_format.stderr);
+        Err(format!(
+            "Le formatage de {} a échoué.\nRaison renvoyée par Linux : {}",
+            partition_path, stderr
+        ))
+    }
+}*/
