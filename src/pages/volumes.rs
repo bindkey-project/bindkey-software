@@ -481,7 +481,7 @@ pub fn show_volumes_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
                                                     Ok(response) if response.status().is_success() => {
                                                         println!("{:?}", response);
                                                         if let Ok(data) = response.json::<VolumeInitResponse>().await {
-                                                            
+
                                                             if data.exists {
                                                                 let _ = clone_sender.send(ApiMessage::VolumeCreationStatus(format!("Erreur : le volume '{}' existe déjà", clone_volume_name)));
                                                                 return;
@@ -645,16 +645,17 @@ pub fn create_and_format_partition(
     volume_id: &str,
     port_name: &str,
 ) -> Result<(u64, u64, String), String> {
-    
     // =========================================================
     // FIX 1 : FORCER LA LECTURE DU CACHE AVANT LE CALCUL (LBA)
     // =========================================================
     // Indispensable pour éviter que Linux ne mente et redonne toujours le LBA 2048
-   // =========================================================
+    // =========================================================
     // 0. FORCER LE KERNEL À OUVRIR LES YEUX
     // =========================================================
     // Indispensable pour que Linux arrête de croire que la clé est vide
-  let _ = Command::new("/usr/bin/pkexec").args(["partprobe", device_path]).output();
+    let _ = Command::new("/usr/bin/pkexec")
+        .args(["partprobe", device_path])
+        .output();
     let _ = Command::new("/usr/bin/udevadm").arg("settle").output();
 
     // =========================================================
@@ -668,8 +669,11 @@ pub fn create_and_format_partition(
     let stdout = String::from_utf8_lossy(&output.stdout);
 
     // 🟢=== LE DÉBOGAGE EST ICI ===🟢
-    println!("=== DEBUG SORTIE PARTED ===\n{}\n=========================", stdout);
-    
+    println!(
+        "=== DEBUG SORTIE PARTED ===\n{}\n=========================",
+        stdout
+    );
+
     let mut max_end_sector: u64 = 0;
 
     // A. On scanne la clé pour trouver où se termine le tout dernier volume
@@ -730,7 +734,11 @@ pub fn create_and_format_partition(
         while !is_ready && tentatives < 5 {
             match crate::usb_service::send_text_command(&mut *port, &cmd_sectors) {
                 Ok(map) => {
-                    if map.get("STATUS").map(|val| val.contains("OK")).unwrap_or(false) {
+                    if map
+                        .get("STATUS")
+                        .map(|val| val.contains("OK"))
+                        .unwrap_or(false)
+                    {
                         is_ready = true;
                     } else {
                         tentatives += 1;
@@ -745,7 +753,9 @@ pub fn create_and_format_partition(
         }
 
         if !is_ready {
-            return Err("La BindKey n'a pas confirmé l'enregistrement des secteurs LBA.".to_string());
+            return Err(
+                "La BindKey n'a pas confirmé l'enregistrement des secteurs LBA.".to_string(),
+            );
         }
     } // Le port USB se ferme ici
 
@@ -753,7 +763,7 @@ pub fn create_and_format_partition(
     // 3. CRÉATION PHYSIQUE EXACTE (Script Bash calqué sur le terminal)
     // =========================================================
     println!("BindKey prête. Lancement des commandes OS...");
-    
+
     let safe_volume_name: String = volume_name.to_uppercase().chars().take(11).collect();
 
     let script_creation = format!(
