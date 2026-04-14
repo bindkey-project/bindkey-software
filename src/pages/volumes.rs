@@ -745,7 +745,7 @@ pub fn create_and_format_partition(
         }
     } // Le port USB se ferme automatiquement ici
     println!("BindKey prête. Exécution du script de création global...");
-    
+
     let safe_volume_name: String = volume_name.to_uppercase().chars().take(11).collect();
 
     let script_creation = format!(
@@ -821,7 +821,6 @@ pub fn create_and_format_partition(
 
     Ok((start, end, partition_id))
 }
-    
 
 pub fn force_format(device_path: &str, partitions: &Vec<String>) -> Result<(), String> {
     // 1. Démonter toutes les partitions existantes (sda1, sda2...)
@@ -926,7 +925,7 @@ pub fn rollback_physical_volume(
     let _ = Command::new("/usr/bin/udevadm").arg("settle").output();
 }
 
-/* 
+/*
 // =========================================================
     // 3. CRÉATION PHYSIQUE (Maintenant que la puce écoute)
     // =========================================================
@@ -1015,7 +1014,7 @@ pub fn rollback_physical_volume(
     let output_format = Command::new("/usr/bin/pkexec")
         .args([
             // Sur Kali et Debian, mkfs.vfat est très souvent dans /usr/sbin/ ou /sbin/, pas dans /usr/bin/ !
-            "/usr/sbin/mkfs.vfat", 
+            "/usr/sbin/mkfs.vfat",
             "-I",
             "-F",
             "32",
