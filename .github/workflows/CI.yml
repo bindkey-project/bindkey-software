@@ -3,7 +3,7 @@ name: Rust CI & CD
 on:
   push:
     branches: [ "main", "Develop" ]
-    tags: [ "v*" ] 
+    tags: [ "v*" ]
   pull_request:
     branches: [ "main", "Develop" ]
 
@@ -14,14 +14,13 @@ jobs:
   build-and-release:
     name: Test, Build & Release
     runs-on: ubuntu-latest
-
+    
     # ==========================================
-    # L'AJOUT CRUCIAL EST ICI 👇
+    # PERMISSIONS (Nécessaire pour créer la Release)
     # ==========================================
     permissions:
       contents: write 
-    # ==========================================
-
+      
     steps:
     - uses: actions/checkout@v4
     
@@ -29,31 +28,34 @@ jobs:
       run: |
         sudo apt-get update
         sudo apt-get install -y libudev-dev pkg-config libgtk-3-dev libasound2-dev libxcb-shape0-dev libxcb-xfixes0-dev libxcb-render0-dev libxkbcommon-dev libssl-dev
-
+        
     - name: Restore Certificate
       run: echo "${{ secrets.BINDKEY_CERT_BASE64 }}" | base64 -d > bindkey_cert.pem
-
+      
     - name: Rust Cache
       uses: Swatinem/rust-cache@v2
-
+      
     - name: Check Formatting
       run: cargo fmt --all -- --check
-
+      
     - name: Clippy (Linting)
       run: cargo clippy 
-
-    - name: Install cargo-audit
-      run: cargo install cargo-audit
       
+    # =========================================================
+    # FIX 1 : Installation instantanée de cargo-audit (fini le cargo install !)
+    # =========================================================
+    - name: Install cargo-audit
+      uses: taiki-e/install-action@cargo-audit
+          
     - name: Run Security Audit
       run: cargo audit
-
+      
     - name: Run tests
       run: cargo test --verbose
-
+      
     - name: Build Release
       run: cargo build --release --verbose
-
+      
     - name: Prepare Package
       run: |
         mkdir release_package
@@ -63,29 +65,35 @@ jobs:
         tar -czvf bindkey-linux-package.tar.gz -C release_package .
 
     # =========================================================
+    # FIX 2 : Installation instantanée de zipsign (fini le cargo install !)
+    # =========================================================
+    - name: Install zipsign
+      uses: taiki-e/install-action@v2
+      with:
+        tool: zipsign
+
+    # =========================================================
     # SIGNATURE CRYPTOGRAPHIQUE AVEC ZIPSIGN
     # =========================================================
     - name: Sign Release Package
       env:
         ZIPSIGN_KEY: ${{ secrets.ZIPSIGN_PRIVATE_KEY }}
       run: |
-        cargo install zipsign
-        
-        # Décodage Hexadécimal (Parfaitement fonctionnel !)
+        # Décodage Hexadécimal
         echo "$ZIPSIGN_KEY" | xxd -r -p > update.key
         
-        # Signature (DANS LE BON ORDRE : Archive en premier, Clé en second)
+        # Signature (Archive en premier, Clé en second)
         zipsign sign tar bindkey-linux-package.tar.gz update.key
         
         rm update.key
-
+        
     - name: Upload Artifact
       uses: actions/upload-artifact@v4
       with:
         name: bindkey-linux-package 
-        path: release_package/      
+        path: release_package/
         retention-days: 7
-
+        
     - name: Create GitHub Release
       uses: softprops/action-gh-release@v2
       if: startsWith(github.ref, 'refs/tags/v') 
