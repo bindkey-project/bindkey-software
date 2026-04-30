@@ -137,10 +137,11 @@ pub fn show_enrollment_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
                                             match crate::usb_service::send_text_command(&mut *port, &cmd) {
                                                 Ok(map) => {
                                                     // On cherche l'UID et la clé publique renvoyés par la BindKey
-                                                    if let (Some(uid), Some(pk)) = (map.get("SN"), map.get("PUB")) {
+                                                    if let (Some(sn), Some(pub_sign), Some(pub_ecdh)) = (map.get("SN"), map.get("PUB_SIGN"), map.get("PUB_ECDH")) {
                                                         let data = UsbResponse::Success(SuccessData::EnrollmentInfo {
-                                                            uid: uid.clone(),
-                                                            public_key: pk.clone(),
+                                                            sn: sn.clone(),
+                                                            pub_sign: pub_sign.clone(),
+                                                            pub_ecdh: pub_ecdh.clone(),
                                                         });
                                                         // On envoie le succès à l'Event Handler qui fera l'appel API !
                                                         let _ = sender.send(ApiMessage::EnrollmentUsbSuccess(data));
@@ -212,90 +213,146 @@ pub fn show_enrollment_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
             // COLONNE DROITE : LES LISTES (Utilisateurs et BindKeys)
             // =========================================================
             cols[1].vertical(|ui| {
-                // 🛡️ VÉRIFICATION DU RÔLE ICI
-                if app.role_user == Role::ADMIN {
-                    // =========================================================
-                    // VUE ADMIN : On affiche le moteur de recherche
-                    // =========================================================
-                    card_frame.show(ui, |ui| {
-                        ui.heading("🔍 Recherche Utilisateur");
-                        ui.separator();
-                        ui.add_space(10.0);
+            // 🛡️ VÉRIFICATION DU RÔLE ICI
+            if app.role_user == Role::ADMIN {
+                // =========================================================
+                // VUE ADMIN : Moteur de recherche amélioré
+                // =========================================================
+                card_frame.show(ui, |ui| {
+                    ui.label(egui::RichText::new("🔍 Recherche Utilisateur").strong().size(24.0));
+                    ui.add_space(5.0);
+                    ui.separator();
+                    ui.add_space(15.0);
 
-                        ui.horizontal(|ui| {
-                            ui.label("Email :");
-                            ui.text_edit_singleline(&mut app.search_email_input);
-                            if ui.button("Rechercher").clicked() {
-                                if !app.search_email_input.is_empty() {
-                                    let _ = app.sender.send(ApiMessage::SearchUserByEmail(app.search_email_input.clone()));
-                                }
+                    // --- 1. BARRE DE RECHERCHE MODERNE ---
+                    ui.horizontal(|ui| {
+                        // Le champ de recherche un peu plus haut
+                        let search_box = ui.add_sized(
+                            [ui.available_width() - 120.0, 35.0],
+                            egui::TextEdit::singleline(&mut app.search_email_input)
+                                .hint_text("✉️ Entrez l'adresse email de l'utilisateur...")
+                                .margin(egui::vec2(10.0, 10.0)),
+                        );
+
+                        // Bouton plus lisible
+                        let btn_clicked = ui.add_sized(
+                            [110.0, 35.0],
+                            egui::Button::new(egui::RichText::new("Rechercher").size(16.0))
+                        ).clicked();
+
+                        if btn_clicked || (search_box.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter))) {
+                            if !app.search_email_input.is_empty() {
+                                let _ = app.sender.send(ApiMessage::SearchUserByEmail(app.search_email_input.clone()));
                             }
-                        });
+                        }
+                    });
 
-                        if let Some(user_data) = &mut app.search_result {
-                            ui.group(|ui| {
-                                ui.heading(format!("👤 {} {}", user_data.first_name, user_data.last_name));
-                                ui.label(format!("📧 {}", user_data.email));
-                                ui.label(format!("🛡️ Rôle : {:?}", user_data.role));
-                            });
+                    ui.add_space(20.0);
 
-                            ui.add_space(10.0);
+                    // --- 2. RÉSULTAT : CARTE UTILISATEUR ---
+                    if let Some(user_data) = &mut app.search_result {
 
-                            if user_data.email != app.login_email {
-                                if ui.button("🗑️ Supprimer ce compte").clicked() {
-                                    let _ = app.sender.send(ApiMessage::DeleteUser(user_data.id.clone()));
-                                }
-                            }
+                        egui::Frame::group(ui.style())
+                            .inner_margin(15.0)
+                            .rounding(8.0)
+                            .show(ui, |ui| {
 
-                            ui.add_space(20.0);
-
-                            // --- INFO BINDKEY ASSOCIÉE ---
-                            ui.heading("🔑 BindKey Associée");
-                            ui.separator();
-
-                            // On vérifie directement si le champ bindkey contient "Some" ou "None"
-                            if let Some(bk) = &mut user_data.bindkey {
-                                ui.group(|ui| {
-                                    ui.label(format!("📌 Numéro de Série : {}", bk.serial_number));
-
-                                    ui.add_space(5.0);
-                                    ui.horizontal(|ui| {
-                                        ui.label("Statut actuel :");
-
-                                        // --- COMBOBOX POUR CHANGER LE STATUT ---
-                                        let current_status_text = match bk.status {
-                                            StatusBindkey::ACTIVE => "🟢 Actif",
-                                            StatusBindkey::RESET => "🔴 Révoquée",
-                                            StatusBindkey::LOST => "🟠 Perdue",
-                                            StatusBindkey::BROKEN => "🔴 Cassée",
-                                        };
-
-                                        egui::ComboBox::from_id_salt("status_combo")
-                                            .selected_text(current_status_text)
-                                            .show_ui(ui, |ui| {
-                                                ui.selectable_value(&mut bk.status, StatusBindkey::ACTIVE, "🟢 Actif");
-                                                ui.selectable_value(&mut bk.status, StatusBindkey::RESET, "🔴 Révoquée");
-                                                ui.selectable_value(&mut bk.status, StatusBindkey::LOST, "🟠 Perdue");
-                                                ui.selectable_value(&mut bk.status, StatusBindkey::BROKEN, "🔴 Cassée");
-                                            });
-
-                                        // --- BOUTON DE SAUVEGARDE DU STATUT ---
-                                        if ui.button("💾 Appliquer").clicked() {
-                                            let _ = app.sender.send(ApiMessage::UpdateBindKeyStatus(
-                                                bk.serial_number.clone(),
-                                                bk.status.clone(),
-                                            ));
-                                        }
+                                ui.horizontal(|ui| {
+                                    // Infos à gauche
+                                    ui.vertical(|ui| {
+                                        // Nom bien en évidence (taille 22)
+                                        ui.label(egui::RichText::new(format!("👤 {} {}", user_data.first_name, user_data.last_name)).size(24.0).strong());
+                                        ui.add_space(4.0);
+                                        // Email lisible (taille 16)
+                                        ui.label(egui::RichText::new(format!("📧 {}", user_data.email)).size(20.0).italics());
+                                        ui.add_space(4.0);
+                                        // Rôle lisible (taille 16)
+                                        ui.label(egui::RichText::new(format!("🛡️ Rôle : {:?}", user_data.role)).size(20.0));
                                     });
+
+                                    // Bouton Supprimer aligné à droite avec icône et texte ajustés
+                                    if user_data.email != app.login_email {
+                                        ui.with_layout(egui::Layout::right_to_left(egui::Align::TOP), |ui| {
+                                            if ui.button(egui::RichText::new("🗑️ Supprimer").size(20.0).color(egui::Color32::LIGHT_RED)).clicked() {
+                                                let _ = app.sender.send(ApiMessage::DeleteUser(user_data.id.clone()));
+                                            }
+                                        });
+                                    }
                                 });
-                            } else {
-                                ui.label(
-                                    egui::RichText::new("⚠️ Aucune BindKey n'est assignée à cet utilisateur pour le moment.")
-                                        .color(egui::Color32::YELLOW),
-                                );
-                            }
-                        } // Fin du if let Some(user_data)
-                    }); // Fin du card_frame.show (ADMIN)
+
+                                ui.add_space(20.0);
+                                ui.separator();
+                                ui.add_space(15.0);
+
+                                // --- 3. CARTE BINDKEY ASSOCIÉE ---
+                                ui.label(egui::RichText::new("🔑 BindKey Associée").size(24.0).strong());
+                                ui.add_space(10.0);
+
+                                if let Some(bk) = &mut user_data.bindkey {
+                                    egui::Frame::none()
+                                        .fill(ui.visuals().faint_bg_color)
+                                        .rounding(6.0)
+                                        .inner_margin(16.0) // Marge augmentée pour respirer
+                                        .show(ui, |ui| {
+                                            ui.horizontal(|ui| {
+
+                                                // Infos BindKey à gauche
+                                                ui.vertical(|ui| {
+                                                    // Titre moins agressif
+                                                    ui.label(egui::RichText::new("📌 Numéro de Série").size(20.0));
+                                                    ui.add_space(2.0);
+                                                    // La vraie valeur beaucoup plus lisible !
+                                                    ui.label(egui::RichText::new(&bk.serial_number).size(20.0).monospace().strong());
+                                                });
+
+                                                // Actions BindKey à droite
+                                                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                                    if ui.button(egui::RichText::new("💾 Appliquer").size(20.0)).clicked() {
+                                                        let _ = app.sender.send(ApiMessage::UpdateBindKeyStatus(
+                                                            bk.serial_number.clone(),
+                                                            bk.status.clone(),
+                                                        ));
+                                                    }
+
+                                                    let current_status_text = match bk.status {
+                                                        StatusBindkey::ACTIVE => "Actif",
+                                                        StatusBindkey::RESET => "Révoquée",
+                                                        StatusBindkey::LOST => "Perdue",
+                                                        StatusBindkey::BROKEN => "Cassée",
+                                                    };
+
+                                                    egui::ComboBox::from_id_salt("status_combo")
+                                                        .selected_text(egui::RichText::new(current_status_text).size(20.0))
+                                                        .show_ui(ui, |ui| {
+                                                            ui.selectable_value(&mut bk.status, StatusBindkey::ACTIVE, "Actif");
+                                                            ui.selectable_value(&mut bk.status, StatusBindkey::RESET, "Révoquée");
+                                                            ui.selectable_value(&mut bk.status, StatusBindkey::LOST, "Perdue");
+                                                            ui.selectable_value(&mut bk.status, StatusBindkey::BROKEN, "Cassée");
+                                                        });
+
+                                                    ui.label(egui::RichText::new("Statut :").size(20.0));
+                                                });
+                                            });
+                                        });
+                                } else {
+                                    // Message d'avertissement plus aéré
+                                    egui::Frame::none()
+                                        .fill(egui::Color32::from_rgba_unmultiplied(255, 165, 0, 20))
+                                        .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(255, 165, 0)))
+                                        .rounding(6.0)
+                                        .inner_margin(12.0)
+                                        .show(ui, |ui| {
+                                            ui.horizontal(|ui| {
+                                                ui.label(egui::RichText::new("⚠️").size(20.0));
+                                                ui.label(egui::RichText::new("Aucune BindKey n'est assignée à cet utilisateur pour le moment.")
+                                                    .size(15.0)
+                                                    .color(egui::Color32::from_rgb(255, 200, 100)));
+                                            });
+                                        });
+                                }
+                            }); // Fin Frame Utilisateur
+                    } // Fin du if let Some(user_data)
+                }); // Fin du card_frame.show (ADMIN)
 
                 } else {
                     // =========================================================

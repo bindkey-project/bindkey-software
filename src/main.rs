@@ -32,13 +32,14 @@ struct BindKeyApp {
     pub device_size: f64,
     pub device_available_space: f64,
     pub volume_created_name: String,
-    pub volume_created_size: u32,
+    pub volume_created_size: i64,
     pub receiver: Receiver<ApiMessage>,
     pub sender: Sender<ApiMessage>,
     pub login_status: String,
     pub enroll_status: String,
     pub volume_status: String,
     pub formatage_status: String,
+    pub dashboard_status: String,
     #[validate(email)]
     pub login_email: String,
     pub login_password: String,
@@ -57,6 +58,26 @@ struct BindKeyApp {
     pub dashboard_volumes: Vec<VolumeInfo>,
     pub search_email_input: String,
     pub search_result: Option<UserWithBindKey>,
+    pub share_input_email: String,
+    pub share_search_feedback: String,
+    pub is_searching_user: bool,
+
+    // Les infos basiques récupérées
+    pub share_target_name: Option<String>,
+    pub share_target_email: Option<String>,
+    pub share_target_role: Option<Role>,
+
+    // Pour déclencher l'étape suivante
+    pub show_volume_selection: bool,
+
+    pub sharing_active_volume: Option<VolumeInfo>,
+
+    pub is_sharing_in_progress: bool,
+    pub share_pipeline_status: String,
+    pub needs_volume_refresh: bool,
+
+    pub local_bindkey_sn: Option<String>,
+    pub active_volume_id_hex: Option<String>,
 }
 
 impl BindKeyApp {
@@ -120,6 +141,7 @@ impl BindKeyApp {
             enroll_status: String::new(),
             volume_status: String::new(),
             formatage_status: String::new(),
+            dashboard_status: String::new(),
             login_email: String::new(),
             login_password: String::new(),
             is_admin_mode: false,
@@ -137,6 +159,19 @@ impl BindKeyApp {
             dashboard_volumes: Vec::new(),
             search_email_input: String::new(),
             search_result: None,
+            share_input_email: String::new(),
+            share_search_feedback: String::new(),
+            is_searching_user: false,
+            share_target_email: None,
+            share_target_name: None,
+            share_target_role: None,
+            show_volume_selection: false,
+            sharing_active_volume: None,
+            is_sharing_in_progress: false,
+            share_pipeline_status: String::new(),
+            needs_volume_refresh: false,
+            local_bindkey_sn: None,
+            active_volume_id_hex: None,
         }
     }
 }

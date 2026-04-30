@@ -128,6 +128,7 @@ fn handle_admin_login(app: &mut BindKeyApp) {
                             data.server_token,
                             data.first_name,
                             data.local_token,
+                            String::new(),
                         ));
                     } else {
                         let _ = clone_sender.send(ApiMessage::LoginError(
@@ -236,6 +237,7 @@ fn handle_login(app: &mut BindKeyApp, ctx: egui::Context) {
                         let _ = clone_sender.send(ApiMessage::ReceivedChallenge(
                             chall.auth_challenge,
                             chall.session_id,
+                            bindkey_uid,
                         ));
                     }
                 } else {

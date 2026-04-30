@@ -49,11 +49,12 @@ pub enum ApiMessage {
     ModificationUsbSuccess(UsbResponse),
     LoginError(String),
     EnrollmentError(String),
-    ReceivedChallenge(String, Uuid),
-    SignedChallenge(String, Uuid),
-    LoginSuccess(Role, String, String, String),
+    ReceivedChallenge(String, Uuid, String),
+    SignedChallenge(String, Uuid, String),
+    LoginSuccess(Role, String, String, String, String),
     VolumeCreationSuccess(UsbResponse),
     VolumeCreationStatus(String),
+    VolumeDashboardStatus(String),
     VolumeInfoReceived(UsbResponse),
     FetchUsers,
     FetchUsersError(String),
@@ -77,6 +78,12 @@ pub enum ApiMessage {
         port_name: String,
     },
     FormatStatus(String),
+    UserSearchResult(Result<FetchedUserInfo, String>),
+    //   FetchTargetCertificate(String),
+    // TargetCertificateReceived(Result<String, String>),
+    //EncryptedVolumeKeyReady(Result<String, String>),
+    RequestVolumeRefresh,
+    SharePipelineStatus(String),
 }
 
 //--------------------------ÉNUMÉRATION (FIN)----------------------------
@@ -108,9 +115,10 @@ pub struct RegisterPayload {
     pub email: String,
     pub password: String,
     pub user_role: Role,
-    pub bindkey_uid: String,
+    pub sn: String,
     pub bindkey_status: StatusBindkey,
-    pub public_key: String,
+    pub pub_sign: String,
+    pub pub_ecdh: String,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -129,7 +137,7 @@ pub struct VolumeInitInfo {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct VolumeInitResponse {
-    pub volume_id: String,
+    pub volume_id: Option<String>,
     pub exists: bool,
 }
 
@@ -138,6 +146,7 @@ pub struct VolumeInfo {
     pub name: String,
     pub device_path: String,
     pub total_space_gb: f64,
+    pub used_space_gb: Option<f64>,
     pub is_mounted: bool,
     pub mount_point: Option<String>,
 }
@@ -145,7 +154,7 @@ pub struct VolumeInfo {
 #[derive(Serialize, Deserialize, Debug)]
 pub struct VolumeCreatedInfo {
     pub name: String,
-    pub size_bytes: u32,
+    pub size_bytes: i64,
     pub id: String,
 }
 
@@ -173,6 +182,7 @@ pub struct BlockDeviceJson {
     pub label: Option<String>,
     #[serde(default)]
     pub children: Option<Vec<BlockDeviceJson>>,
+    pub fsused: Option<serde_json::Value>,
 }
 
 #[derive(Deserialize)]
@@ -209,6 +219,51 @@ pub struct UserWithBindKey {
     pub email: String,
     pub role: Role,
     pub bindkey: Option<BindKeyInfo>,
+}
+
+#[derive(Deserialize, Debug, Clone)]
+pub struct FetchedUserInfo {
+    pub name: String,
+    pub email: String,
+    pub role: Role,
+}
+
+//------------------------------ Struct De Partage ---------------------------------
+#[derive(Serialize)]
+pub struct ShareRequestPayload {
+    pub volume_name: String,
+    pub target_user_email: String,
+}
+
+#[derive(Deserialize)]
+pub struct ShareRequestResponse {
+    pub target_sn: String,
+    pub target_pubkey_ecdh: String,
+    pub target_slot: u16,
+    pub volume_id: String,
+}
+
+#[derive(Serialize)]
+pub struct ShareCompletePayload {
+    pub source_sn: String,
+    pub target_sn: String,
+    pub volume_id: String,
+    pub wrapped: String,
+}
+
+#[derive(Deserialize, Debug)]
+pub struct PendingShare {
+    pub share_id: String,
+    pub source_sn: String,
+    pub source_pubkey_ecdh: String,
+    pub slot: u16,
+    pub wrapped: String,
+    pub volume_id: String,
+}
+
+#[derive(Serialize)]
+pub struct ShareAckPayload {
+    pub share_id: String,
 }
 
 pub fn create_secure_client() -> Result<Client, String> {

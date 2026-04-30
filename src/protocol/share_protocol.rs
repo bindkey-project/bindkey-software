@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
 #[derive(Debug, Clone, Copy)]
 #[repr(u8)]
@@ -21,8 +22,9 @@ pub enum UsbResponse {
 #[serde(rename_all = "camelCase")]
 pub enum SuccessData {
     EnrollmentInfo {
-        uid: String,
-        public_key: String,
+        sn: String,
+        pub_sign: String,
+        pub_ecdh: String,
     },
 
     Signature {

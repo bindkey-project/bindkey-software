@@ -16,7 +16,11 @@ pub fn handle_api_message(app: &mut BindKeyApp, message: ApiMessage) {
         }
         ApiMessage::EnrollmentUsbSuccess(data) => {
             match data {
-                UsbResponse::Success(SuccessData::EnrollmentInfo { uid, public_key }) => {
+                UsbResponse::Success(SuccessData::EnrollmentInfo {
+                    sn,
+                    pub_sign,
+                    pub_ecdh,
+                }) => {
                     let clone_sender = app.sender.clone();
                     let clone_firstname = app.enroll_firstname.clone();
                     let clone_lastname = app.enroll_lastname.clone();
@@ -24,8 +28,9 @@ pub fn handle_api_message(app: &mut BindKeyApp, message: ApiMessage) {
                     let hash_password = hash_password_with_salt(&app.enroll_password);
                     let clone_user_role = app.enroll_role.clone();
                     let clone_auth_token = app.server_token.clone();
-                    let clone_bk_pk = public_key;
-                    let clone_bk_uid = uid;
+                    let clone_bk_pub_sign = pub_sign;
+                    let clone_bk_pub_ecdh = pub_ecdh;
+                    let clone_bk_sn = sn;
                     let clone_url = app.config.api_url.clone();
                     let clone_api_client = app.api_client.clone();
 
@@ -37,8 +42,9 @@ pub fn handle_api_message(app: &mut BindKeyApp, message: ApiMessage) {
                             password: hash_password,
                             user_role: clone_user_role,
                             bindkey_status: ACTIVE,
-                            public_key: clone_bk_pk,
-                            bindkey_uid: clone_bk_uid,
+                            pub_sign: clone_bk_pub_sign,
+                            sn: clone_bk_sn,
+                            pub_ecdh: clone_bk_pub_ecdh,
                         };
                         println!("{:?}", payload);
                         let url = format!("{}/auth/register", clone_url);
@@ -145,7 +151,7 @@ pub fn handle_api_message(app: &mut BindKeyApp, message: ApiMessage) {
             app.is_loading = false;
         }
 
-        ApiMessage::ReceivedChallenge(le_challenge, session_id) => {
+        ApiMessage::ReceivedChallenge(le_challenge, session_id, bindkey_uid) => {
             app.login_status =
                 "Challenge reçue, communication avec la bindkey en cours".to_string();
             app.is_loading = true;
@@ -171,6 +177,7 @@ pub fn handle_api_message(app: &mut BindKeyApp, message: ApiMessage) {
                                         let _ = clone_sender.send(ApiMessage::SignedChallenge(
                                             sig.clone(),
                                             session_id,
+                                            bindkey_uid,
                                         ));
                                     } else {
                                         let _ = clone_sender.send(ApiMessage::LoginError(
@@ -199,7 +206,7 @@ pub fn handle_api_message(app: &mut BindKeyApp, message: ApiMessage) {
                 }
             });
         }
-        ApiMessage::SignedChallenge(signature, session_id) => {
+        ApiMessage::SignedChallenge(signature, session_id, bindkey_uid) => {
             app.login_status =
                 "Signature générée. Vérification finale auprès du serveur".to_string();
             app.is_loading = true;
@@ -229,6 +236,7 @@ pub fn handle_api_message(app: &mut BindKeyApp, message: ApiMessage) {
                                         response.server_token,
                                         response.first_name,
                                         response.local_token,
+                                        bindkey_uid,
                                     ));
                                 }
                                 Err(e) => {
@@ -257,7 +265,7 @@ pub fn handle_api_message(app: &mut BindKeyApp, message: ApiMessage) {
                 }
             });
         }
-        ApiMessage::LoginSuccess(role, token, first_name, local_token) => {
+        ApiMessage::LoginSuccess(role, token, first_name, local_token, bindkey_uid) => {
             app.role_user = role;
             app.server_token = token;
             app.first_name_user = first_name;
@@ -266,7 +274,7 @@ pub fn handle_api_message(app: &mut BindKeyApp, message: ApiMessage) {
             app.login_status = String::new();
             app.login_password = String::new();
             app.is_loading = false;
-
+            app.local_bindkey_sn = Some(bindkey_uid);
             app.current_page = Page::Home;
         }
         ApiMessage::VolumeCreationSuccess(data) => {
@@ -312,17 +320,18 @@ pub fn handle_api_message(app: &mut BindKeyApp, message: ApiMessage) {
                                         ),
                                     ));
                                     /*
-                                                                        rollback_physical_volume(
-                                                                            &device_path,
-                                                                            &partition_number,
-                                                                            &clone_port,
-                                                                            &volume_id,
-                                                                        );
+                                                                            rollback_physical_volume(
+                                                                                &device_path,
+                                                                                &partition_number,
+                                                                                &clone_port,
+                                                                                &volume_id,
+                                                                            );
+
+                                        let _ = clone_sender.send(ApiMessage::VolumeCreationStatus(
+                                            "Volume annulé proprement suite à l'erreur serveur."
+                                                .to_string(),
+                                        ));
                                     */
-                                    let _ = clone_sender.send(ApiMessage::VolumeCreationStatus(
-                                        "Volume annulé proprement suite à l'erreur serveur."
-                                            .to_string(),
-                                    ));
                                 }
                             }
                             Err(e) => {
@@ -357,6 +366,9 @@ pub fn handle_api_message(app: &mut BindKeyApp, message: ApiMessage) {
         }
         ApiMessage::VolumeCreationStatus(texte) => {
             app.volume_status = texte.to_string();
+        }
+        ApiMessage::VolumeDashboardStatus(texte) => {
+            app.dashboard_status = texte.to_string();
         }
         ApiMessage::VolumeInfoReceived(data) => {
             match data {
@@ -435,7 +447,7 @@ pub fn handle_api_message(app: &mut BindKeyApp, message: ApiMessage) {
         }
         ApiMessage::DeleteUser(user_id) => {
             let clone_sender = app.sender.clone();
-            let url = format!("{}/users/{}", app.config.api_url, user_id);
+            let url = format!("{}/admin/users/{}", app.config.api_url, user_id);
             let clone_auth_token = app.server_token.clone();
             let clone_api_client = app.api_client.clone();
 
@@ -703,6 +715,29 @@ pub fn handle_api_message(app: &mut BindKeyApp, message: ApiMessage) {
         ApiMessage::FormatStatus(status) => {
             app.formatage_status = status;
         }
+
+        ApiMessage::UserSearchResult(result) => {
+            app.is_searching_user = false;
+            match result {
+                Ok(info) => {
+                    app.share_target_name = Some(info.name);
+                    app.share_target_email = Some(info.email);
+                    app.share_target_role = Some(info.role);
+                    app.share_search_feedback = String::new(); // On efface les erreurs
+                    app.show_volume_selection = false; // On reset l'étape suivante au cas où
+                }
+                Err(err_msg) => {
+                    app.share_target_name = None;
+                    app.share_target_email = None;
+                    app.share_target_role = None;
+                    app.share_search_feedback = format!("❌ {}", err_msg);
+                    app.show_volume_selection = false;
+                }
+            }
+        }
+        ApiMessage::RequestVolumeRefresh => {
+            app.needs_volume_refresh = true;
+        }
         ApiMessage::LogOutSuccess => {
             app.current_page = Page::Login;
             app.role_user = Role::NONE;
@@ -732,6 +767,9 @@ pub fn handle_api_message(app: &mut BindKeyApp, message: ApiMessage) {
         }
         ApiMessage::UpdateStatus(texte) => {
             app.update_status = texte;
+        }
+        ApiMessage::SharePipelineStatus(text) => {
+            app.share_pipeline_status = text;
         }
     }
 }
