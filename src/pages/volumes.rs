@@ -1,7 +1,7 @@
 use std::future::Pending;
 use std::process::Command;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::thread;
+use std::thread::{self, current};
 use std::time::Duration;
 
 // Un compteur global, persistant et thread-safe, initialisé à 1
@@ -409,6 +409,13 @@ pub fn show_volumes_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
 
                                                 // Attention: en right_to_left, le premier bouton ajouté est le plus à droite !
 
+                                                if ui.button(egui::RichText::new("Supprimer le volume").color(egui::Color32::RED)).clicked() {
+                                                    app.dashboard_status = "Suppression en cours...".to_string();
+                                                    app.is_loading = true;
+                                                    let _ = app.sender.send(ApiMessage::StartVolumeDeletion(vol.name.clone()));
+                                                }
+
+
                                                 // 1. Bouton Partager (Tout à droite)
                                                 if ui.button(egui::RichText::new("🤝 Partager").size(20.0)).clicked() {
                                                     app.sharing_active_volume = Some(vol.clone());
@@ -594,7 +601,7 @@ pub fn show_volumes_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
                                 let mut target_free_gb = 0.0;
                                 let mut target_name = String::new();
 
-                                for disk in parsed.blockdevices.into_iter().take(10) {
+                                for disk in parsed.blockdevices {
                                     if let Some(tran) = disk.tran {
                                         if tran.trim() == "usb" {
                                             let model = disk.model.unwrap_or("Inconnu".to_string());
@@ -610,7 +617,7 @@ pub fn show_volumes_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
                                             let mut partitions_paths = Vec::new();
 
                                             if let Some(children) = disk.children {
-                                                for child in children.into_iter().take(30) {
+                                                for child in children {
                                                     used_bytes += child.size;
                                                     partitions_paths.push(format!("/dev/{}", child.name));
                                                 }
@@ -989,12 +996,13 @@ pub fn show_volumes_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
                         let format_button = egui::Button::new("Réinitialiser la clé à zéro");
 
                         if ui.add(format_button).clicked() {
-                            // 🚀 ON DÉCLENCHE LA TÂCHE ASYNCHRONE ICI
-                            // (Assure-toi d'avoir le port name disponible, ex: app.current_port_name)
+                            app.is_loading = true;
+                            let volume_names: Vec<String> = app.dashboard_volumes.iter().map(|v|v.name.clone()).collect();
                             let _ = app.sender.send(ApiMessage::StartFormatBindKey {
                                 device_path: device.path.clone(),
                                 partitions: device.partitions.clone(),
                                 port_name: app.current_port_name.clone(),
+                                volume_names,
                             });
                         }
                     }
@@ -1075,38 +1083,68 @@ pub fn create_and_format_partition(
         stdout
     );
 
-    let mut max_end_sector: u64 = 0;
+    let mut disk_size_sectors: u64 = 0;
+    let mut occupied: Vec<(u64, u64)> = Vec::new();
 
-    // A. On scanne la clé pour trouver où se termine le tout dernier volume
+    // A. On scanne la clé pour lister toutes les partitions existantes
     for line in stdout.lines() {
         let parts: Vec<&str> = line.split(':').collect();
-        // Les partitions commencent par un numéro (ex: 1:2048s:2099199s:...)
-        if parts.len() >= 4 && parts[0].parse::<u32>().is_ok() {
-            if let Ok(end) = parts[2].trim_end_matches('s').parse::<u64>() {
-                if end > max_end_sector {
-                    max_end_sector = end; // On sauvegarde la fin la plus lointaine
-                }
+        
+        // La ligne du disque (ex: /dev/sdb:15633408s:scsi:512:512:msdos:...)
+        if line.starts_with("/dev/") && parts.len() >= 2 {
+            if let Ok(size) = parts[1].trim_end_matches('s').parse::<u64>() {
+                disk_size_sectors = size;
+            }
+        }
+        // Les lignes de partitions (ex: 1:2048s:2099199s:...)
+        else if parts.len() >= 4 && parts[0].parse::<u32>().is_ok() {
+            let s = parts[1].trim_end_matches('s').parse::<u64>().unwrap_or(0);
+            let e = parts[2].trim_end_matches('s').parse::<u64>().unwrap_or(0);
+            occupied.push((s, e));
+        }
+    }
+
+    // B. On s'assure que les partitions sont triées par secteur de début
+    occupied.sort_by_key(|&(s, _)| s);
+
+    // C. Calcul de la taille cible en secteurs (alignée sur 1 Mo / 2048 secteurs)
+    let target_sectors = (size_gb * 1024.0 * 1024.0 * 1024.0 / 512.0) as u64;
+    let mut final_target = target_sectors;
+    final_target -= final_target % 2048;
+
+    // D. Recherche du premier trou (gap) disponible
+    let mut start_sector: u64 = 0;
+    let mut current_search_start: u64 = 2048; // On commence toujours à 2048 minimum
+
+    for &(part_start, part_end) in &occupied {
+        if part_start > current_search_start {
+            let gap_size = part_start - current_search_start;
+            if gap_size >= final_target {
+                start_sector = current_search_start;
+                break;
+            }
+        }
+        // On saute après la partition actuelle et on s'aligne pour le prochain trou potentiel
+        current_search_start = part_end + 1;
+        let remainder = current_search_start % 2048;
+        if remainder != 0 {
+            current_search_start += 2048 - remainder;
+        }
+    }
+
+    // E. Si on n'a pas trouvé de trou entre les partitions, on regarde après la dernière
+    if start_sector == 0 {
+        if disk_size_sectors > current_search_start {
+            let gap_after = disk_size_sectors - current_search_start;
+            if gap_after >= final_target {
+                start_sector = current_search_start;
             }
         }
     }
 
-    // B. Le point de départ est juste après le dernier volume !
-    let mut start_sector = if max_end_sector == 0 {
-        2048 // S'il n'y a aucun volume (clé vide), on commence à 2048
-    } else {
-        max_end_sector + 1 // Sinon, on commence au secteur suivant
-    };
-
-    // C. Alignement obligatoire sur 1 Mo (2048 secteurs)
-    let remainder = start_sector % 2048;
-    if remainder != 0 {
-        start_sector += 2048 - remainder;
+    if start_sector == 0 {
+        return Err("Plus d'espace libre suffisant sur la BindKey pour ce volume.".to_string());
     }
-
-    // D. Calcul de la taille finale (arrondie au Mo inférieur)
-    let target_sectors = (size_gb * 1024.0 * 1024.0 * 1024.0 / 512.0) as u64;
-    let mut final_target = target_sectors;
-    final_target -= final_target % 2048;
 
     let start = start_sector;
     let end = start_sector + final_target - 1;

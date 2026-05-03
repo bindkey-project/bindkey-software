@@ -76,6 +76,7 @@ pub enum ApiMessage {
         // Adapte le type de partition selon ta structure (ex: Vec<Partition>)
         partitions: Vec<String>,
         port_name: String,
+        volume_names: Vec<String>,
     },
     FormatStatus(String),
     UserSearchResult(Result<FetchedUserInfo, String>),
@@ -84,6 +85,10 @@ pub enum ApiMessage {
     //EncryptedVolumeKeyReady(Result<String, String>),
     RequestVolumeRefresh,
     SharePipelineStatus(String),
+    StartVolumeDeletion(String),
+    VolumeIdReceivedForDeletion(String, String),
+    VolumeDeletedOnServer(String),
+    VolumeDeletionError(String),
 }
 
 //--------------------------ÉNUMÉRATION (FIN)----------------------------

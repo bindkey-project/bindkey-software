@@ -369,6 +369,9 @@ pub fn handle_api_message(app: &mut BindKeyApp, message: ApiMessage) {
         }
         ApiMessage::VolumeDashboardStatus(texte) => {
             app.dashboard_status = texte.to_string();
+            if texte.contains("succès") || texte.contains("Erreur") || texte.contains("❌") {
+                app.is_loading = false;
+            }
         }
         ApiMessage::VolumeInfoReceived(data) => {
             match data {
@@ -618,13 +621,34 @@ pub fn handle_api_message(app: &mut BindKeyApp, message: ApiMessage) {
             device_path,
             partitions,
             port_name,
+            volume_names,
         } => {
             let clone_sender = app.sender.clone();
-            app.formatage_status = "Initialisation de la connexion USB...".to_string();
+            app.formatage_status = "Nettoyage des volumes sur le serveur...".to_string();
+
+            let clone_url = app.config.api_url.clone();
+            let clone_token = app.server_token.clone();
+            let clone_api_client = app.api_client.clone();
+
+
 
             tokio::spawn(async move {
+
+                for name in volume_names {
+                    let url_find = format!("{}/volumes/find_id?name={}", clone_url, name);
+                    if let Ok(resp) = clone_api_client.get(&url_find).bearer_auth(&clone_token).send().await {
+                        if resp.status().is_success() {
+                            if let Ok(data) = resp.json::<serde_json::Value>().await {
+                                if let Some(id) = data.get("volume_id").and_then(|v| v.as_str()) {
+                                
+                                let url_del = format!("{}/volumes/{}", clone_url, id);
+                                let _ = clone_api_client.delete(&url_del).bearer_auth(&clone_token).send().await;
+                                }
+                            }
+                        }
+                    }
+                }
                 // 1. Ouverture du port série
-                // (J'ai baissé le timeout à 10s. Si la clé ne répond pas "OK" en 10s pour un init, elle a planté)
                 match serialport::new(&port_name, 115200)
                     .timeout(std::time::Duration::from_secs(10))
                     .open()
@@ -642,24 +666,19 @@ pub fn handle_api_message(app: &mut BindKeyApp, message: ApiMessage) {
                         // 2. Envoi de l'avertissement à la puce
                         match crate::usb_service::send_text_command(&mut *port, &cmd_init_format) {
                             Ok(map) => {
-                                println!("{:?}", map);
                                 let is_ok = map
                                     .get("STATUS")
                                     .map(|val| val.contains("OK"))
                                     .unwrap_or(false);
-                                if let Some(val) = map.get("STATUS") {
-                                    println!(">> OCTETS RECUS : {:?}", val.as_bytes());
-                                }
-                                if is_ok {
+
+                                    if is_ok {
                                     let _ = clone_sender.send(ApiMessage::FormatStatus(
                                         "BindKey prête. Démarrage du formatage Linux..."
                                             .to_string(),
                                     ));
 
                                     // 3. Formatage de la clé USB (Le disque)
-                                    // On utilise spawn_blocking car force_format prend du temps et est synchrone
                                     let format_result = tokio::task::spawn_blocking(move || {
-                                        // ⚠️ Remplace "crate::ton_module" par le vrai chemin vers force_format
                                         crate::pages::volumes::force_format(
                                             &device_path,
                                             &partitions,
@@ -667,14 +686,12 @@ pub fn handle_api_message(app: &mut BindKeyApp, message: ApiMessage) {
                                     })
                                     .await;
 
-                                    // Analyse du retour de force_format
                                     match format_result {
                                         Ok(Ok(_)) => {
                                             let _ = clone_sender.send(ApiMessage::FormatStatus(
-                                                format!(
-                                                    "✅ Succès : La clé est vide et réinitialisée."
-                                                ),
+                                                "Succès : La clé est vide et réinitialiséé.".to_string(),
                                             ));
+                                            let _ = clone_sender.send(ApiMessage::RequestVolumeRefresh);
                                         }
                                         Ok(Err(e)) => {
                                             let _ = clone_sender.send(ApiMessage::FormatStatus(
@@ -710,10 +727,12 @@ pub fn handle_api_message(app: &mut BindKeyApp, message: ApiMessage) {
                 }
             });
         }
-
         // Mise à jour de l'affichage dans l'UI
         ApiMessage::FormatStatus(status) => {
-            app.formatage_status = status;
+            app.formatage_status = status.clone();
+            if status.contains("Succès") || status.contains("Erreur") || status.contains("Échec") {
+                app.is_loading = false;
+            }
         }
 
         ApiMessage::UserSearchResult(result) => {
@@ -770,6 +789,92 @@ pub fn handle_api_message(app: &mut BindKeyApp, message: ApiMessage) {
         }
         ApiMessage::SharePipelineStatus(text) => {
             app.share_pipeline_status = text;
+        }
+        ApiMessage::StartVolumeDeletion(name) => {
+            app.dashboard_status = format!("Recherche de l'ID pour le volume {}...", name);
+            let clone_sender = app.sender.clone();
+            let clone_url = app.config.api_url.clone();
+            let clone_token = app.server_token.clone();
+            let clone_api_client = app.api_client.clone();
+            let clone_name = name.clone();
+
+            tokio::spawn(async move {
+                // On suppose qu'il y a une route pour récupérer l'ID par le nom
+                let url = format!("{}/volumes/find_id?name={}", clone_url, clone_name);
+                let res = clone_api_client.get(&url).bearer_auth(&clone_token).send().await;
+
+                match res {
+                    Ok(resp) if resp.status().is_success() => {
+                        if let Ok(data) = resp.json::<serde_json::Value>().await {
+                            if let Some(id) = data.get("volume_id").and_then(|v| v.as_str()) {
+                                let _ = clone_sender.send(ApiMessage::VolumeIdReceivedForDeletion(clone_name, id.to_string()));
+                            } else {
+                                let _ = clone_sender.send(ApiMessage::VolumeDeletionError("ID non trouvé dans la réponse".to_string()));
+                            }
+                        }
+                    }
+                    _ => {
+                        let _ = clone_sender.send(ApiMessage::VolumeDeletionError("Impossible de trouver l'ID du volume sur le serveur".to_string()));
+                    }
+                }
+            });
+        }
+        ApiMessage::VolumeIdReceivedForDeletion(name, id) => {
+            app.dashboard_status = format!("Suppression du volume {} ({}) sur le serveur...", name, id);
+            let clone_sender = app.sender.clone();
+            let clone_url = app.config.api_url.clone();
+            let clone_token = app.server_token.clone();
+            let clone_api_client = app.api_client.clone();
+            let clone_id = id.clone();
+
+            tokio::spawn(async move {
+                let url = format!("{}/volumes/{}", clone_url, clone_id);
+                let res = clone_api_client.delete(&url).bearer_auth(&clone_token).send().await;
+
+                match res {
+                    Ok(resp) if resp.status().is_success() => {
+                        let _ = clone_sender.send(ApiMessage::VolumeDeletedOnServer(clone_id));
+                    }
+                    _ => {
+                        let _ = clone_sender.send(ApiMessage::VolumeDeletionError("Échec de la suppression sur le serveur".to_string()));
+                    }
+                }
+            });
+        }
+        ApiMessage::VolumeDeletedOnServer(id) => {
+            app.dashboard_status = format!("Suppression du volume {} sur la BindKey...", id);
+            let clone_sender = app.sender.clone();
+            let clone_port = app.current_port_name.clone();
+            let clone_id = id.clone();
+
+            tokio::spawn(async move {
+                if !clone_port.is_empty() {
+                    match serialport::new(&clone_port, 115200).timeout(Duration::from_secs(5)).open() {
+                        Ok(mut port) => {
+                            let _ = port.write_data_terminal_ready(true);
+                            let cmd = format!("delete_volume={}", clone_id);
+                            match send_text_command(&mut *port, &cmd) {
+                                Ok(_) => {
+                                    let _ = clone_sender.send(ApiMessage::VolumeDashboardStatus("Volume supprimé avec succès !".to_string()));
+                                    let _ = clone_sender.send(ApiMessage::RequestVolumeRefresh);
+                                }
+                                Err(e) => {
+                                    let _ = clone_sender.send(ApiMessage::VolumeDeletionError(format!("Erreur USB : {}", e)));
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            let _ = clone_sender.send(ApiMessage::VolumeDeletionError(format!("Port USB indisponible : {}", e)));
+                        }
+                    }
+                } else {
+                    let _ = clone_sender.send(ApiMessage::VolumeDeletionError("BindKey non connectée pour la suppression finale".to_string()));
+                }
+            });
+        }
+        ApiMessage::VolumeDeletionError(err) => {
+            app.dashboard_status = format!("❌ Erreur : {}", err);
+            app.is_loading = false;
         }
     }
 }
