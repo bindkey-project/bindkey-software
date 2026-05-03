@@ -1089,7 +1089,7 @@ pub fn create_and_format_partition(
     // A. On scanne la clé pour lister toutes les partitions existantes
     for line in stdout.lines() {
         let parts: Vec<&str> = line.split(':').collect();
-        
+
         // La ligne du disque (ex: /dev/sdb:15633408s:scsi:512:512:msdos:...)
         if line.starts_with("/dev/") && parts.len() >= 2 {
             if let Ok(size) = parts[1].trim_end_matches('s').parse::<u64>() {
