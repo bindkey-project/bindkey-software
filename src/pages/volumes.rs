@@ -295,10 +295,10 @@ pub fn show_volumes_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
                                             let ouput_str = String::from_utf8_lossy(&output.stdout);
                                             if let Ok(parsed) = serde_json::from_str::<LsblkOutput>(&ouput_str) {
                                                 let mut extracted_volumes = Vec::new();
-                                                for disk in parsed.blockdevices.into_iter().take(10) {
+                                                for disk in parsed.blockdevices {
                                                     if disk.tran.as_deref() == Some("usb") {
                                                         if let Some(children) = disk.children {
-                                                            for part in children.into_iter().take(30) {
+                                                            for part in children {
                                                                 if part.size < 10_000_000 { continue; }
 
                                                                 let total_gb = part.size as f64 / 1_073_741_824.0;

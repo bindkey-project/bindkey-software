@@ -313,11 +313,14 @@ pub fn handle_api_message(app: &mut BindKeyApp, message: ApiMessage) {
                                         "Volume enregistré sur le serv !".to_string(),
                                     ));
                                 } else {
+                                    let status = response.status();
+                                    let error_text = response.text().await.unwrap_or_else(|_| {
+                                        "Impossible de lire le corps de l'erreur".to_string()
+                                    });
+                                    eprintln!("ERREUR SERVEUR ({}): {}", status, error_text);
+
                                     let _ = clone_sender.send(ApiMessage::VolumeCreationStatus(
-                                        format!(
-                                            "Refus serveur ({}). Suppression du volume en cours...",
-                                            response.status()
-                                        ),
+                                        format!("Refus serveur ({}). {}", status, error_text),
                                     ));
                                     /*
                                                                             rollback_physical_volume(
