@@ -801,7 +801,11 @@ pub fn handle_api_message(app: &mut BindKeyApp, message: ApiMessage) {
         ApiMessage::SharePipelineStatus(text) => {
             app.share_pipeline_status = text.clone();
             // Si le message contient un mot-clé de fin, on débloque le bouton
-            if text.contains("Réussi") || text.contains("Erreur") || text.contains("Échec") || text.contains("Refus") {
+            if text.contains("Réussi")
+                || text.contains("Erreur")
+                || text.contains("Échec")
+                || text.contains("Refus")
+            {
                 app.is_sharing_in_progress = false;
             }
         }
