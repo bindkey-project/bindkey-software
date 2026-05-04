@@ -313,14 +313,11 @@ pub fn handle_api_message(app: &mut BindKeyApp, message: ApiMessage) {
                                         "Volume enregistré sur le serv !".to_string(),
                                     ));
                                 } else {
-                                    let status = response.status();
-                                    let error_text = response.text().await.unwrap_or_else(|_| {
-                                        "Impossible de lire le corps de l'erreur".to_string()
-                                    });
-                                    eprintln!("ERREUR SERVEUR ({}): {}", status, error_text);
-
                                     let _ = clone_sender.send(ApiMessage::VolumeCreationStatus(
-                                        format!("Refus serveur ({}). {}", status, error_text),
+                                        format!(
+                                            "Refus serveur ({}). Suppression du volume en cours...",
+                                            response.status()
+                                        ),
                                     ));
                                     /*
                                                                             rollback_physical_volume(
@@ -799,15 +796,7 @@ pub fn handle_api_message(app: &mut BindKeyApp, message: ApiMessage) {
             app.update_status = texte;
         }
         ApiMessage::SharePipelineStatus(text) => {
-            app.share_pipeline_status = text.clone();
-            // Si le message contient un mot-clé de fin, on débloque le bouton
-            if text.contains("Réussi")
-                || text.contains("Erreur")
-                || text.contains("Échec")
-                || text.contains("Refus")
-            {
-                app.is_sharing_in_progress = false;
-            }
+            app.share_pipeline_status = text;
         }
         ApiMessage::StartVolumeDeletion(name) => {
             app.dashboard_status = format!("Recherche de l'ID pour le volume {}...", name);

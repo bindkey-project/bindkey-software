@@ -157,21 +157,20 @@ pub fn show_volumes_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
 
                                     ui.add_space(15.0);
 
-                                    // On bloque toute l'UI de ce bloc si le partage est en cours
-                                    ui.add_enabled_ui(!app.is_sharing_in_progress, |ui| {
-                                        if ui.button(egui::RichText::new(format!("🤝 Confirmer le partage à {}", name)).size(16.0)).clicked() {
-                                            // 1. On verrouille l'interface
-                                            app.is_sharing_in_progress = true;
-                                            app.share_pipeline_status = "⏳ Étape 1/3 : Récupération du certificat sécurisé...".to_string();
+                                    // On autorise plusieurs clics et on passe le nom en majuscules
+                                    if ui.button(egui::RichText::new(format!("🤝 Confirmer le partage à {}", name)).size(16.0)).clicked() {
+                                        // 1. On indique que le partage est en cours pour le statut
+                                        app.is_sharing_in_progress = true;
+                                        app.share_pipeline_status = "⏳ Étape 1/3 : Récupération du certificat sécurisé...".to_string();
 
-                                            let clone_sender = app.sender.clone();
-                                            let clone_api_client = app.api_client.clone();
-                                            let clone_url = app.config.api_url.clone();
-                                            let clone_token = app.server_token.clone();
-                                            let port_name = app.current_port_name.clone();
+                                        let clone_sender = app.sender.clone();
+                                        let clone_api_client = app.api_client.clone();
+                                        let clone_url = app.config.api_url.clone();
+                                        let clone_token = app.server_token.clone();
+                                        let port_name = app.current_port_name.clone();
 
-                                            let local_volume_name = active_vol.name.clone();
-                                            let target_email = email.clone();
+                                        let local_volume_name = active_vol.name.trim().to_uppercase();
+                                        let target_email = email.clone();
 
                                             tokio::spawn(async move {
                                                 let req_payload = ShareRequestPayload {
@@ -251,7 +250,6 @@ pub fn show_volumes_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
                                                 }
                                             });
                                         }
-                                    });
 
                                     // Affichage dynamique du statut de l'opération
                                     if !app.share_pipeline_status.is_empty() {
