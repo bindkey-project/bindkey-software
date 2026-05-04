@@ -1,6 +1,6 @@
 [package]
 name = "bindkey-software"
-version = "0.0.39"
+version = "0.0.41"
 edition = "2024"
 
 [dependencies]

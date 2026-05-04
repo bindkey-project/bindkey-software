@@ -286,7 +286,7 @@ pub fn handle_api_message(app: &mut BindKeyApp, message: ApiMessage) {
                 }) => {
                     let clone_sender = app.sender.clone();
                     let clone_auth_token = app.server_token.clone();
-                    let clone_volume_name = app.volume_created_name.clone();
+                    let clone_volume_name = app.volume_created_name.trim().to_uppercase();
                     let clone_volume_size = app.volume_created_size;
                     let clone_device_name = app.device_name.clone();
                     let clone_url = app.config.api_url.clone();
@@ -799,7 +799,11 @@ pub fn handle_api_message(app: &mut BindKeyApp, message: ApiMessage) {
             app.update_status = texte;
         }
         ApiMessage::SharePipelineStatus(text) => {
-            app.share_pipeline_status = text;
+            app.share_pipeline_status = text.clone();
+            // Si le message contient un mot-clé de fin, on débloque le bouton
+            if text.contains("Réussi") || text.contains("Erreur") || text.contains("Échec") || text.contains("Refus") {
+                app.is_sharing_in_progress = false;
+            }
         }
         ApiMessage::StartVolumeDeletion(name) => {
             app.dashboard_status = format!("Recherche de l'ID pour le volume {}...", name);

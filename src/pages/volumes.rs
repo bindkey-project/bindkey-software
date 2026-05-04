@@ -520,7 +520,7 @@ pub fn show_volumes_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
                                             if port_name_clone.is_empty() {return Err("Clé Débranchée.".to_string()); }
                                             let mut port = serialport::new(&port_name_clone, 115200).timeout(std::time::Duration::from_secs(3)).open().map_err(|e| e.to_string())?;
                                             process_hardware_recv_share(&mut port, hw_slot, &hw_pubkey, &hw_wrapped)
-                                        }).await.unwrap_or(Err("Crash thrad matériel".to_string()));
+                                        }).await.unwrap_or(Err("Crash thread matériel".to_string()));
 
                                         match hw_result {
                                             Ok(_) => {
@@ -838,7 +838,7 @@ pub fn show_volumes_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
                                         };
 
                                         let clone_sender = app.sender.clone();
-                                        let clone_volume_name = app.volume_created_name.clone();
+                                        let clone_volume_name = app.volume_created_name.trim().to_uppercase();
                                         let clone_volume_size = app.volume_created_size;
                                         let clone_url = app.config.api_url.clone();
                                         let clone_auth_token = app.server_token.clone();
@@ -887,6 +887,7 @@ pub fn show_volumes_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
 
                                                     // On récupère directement la String pure du serveur
                                                     if let Some(id) = data.volume_id {
+                                                        println!("🔍 DEBUG : ID reçu du serveur : {}", id);
                                                         let _ = clone_sender.send(ApiMessage::VolumeCreationStatus("Nom validé par le serveur. Calcul des secteurs...".to_string()));
                                                         id
                                                     } else {
@@ -1425,7 +1426,7 @@ pub fn generate_hardware_share(
     target_slot: u16,
 ) -> Result<(String, String), String> {
     let share_commands = format!(
-        "share_volume_id={}\nshare_target_sn={}\nshare_target_pubkey={}\nshare_targe_slot={}\n",
+        "share_volume_id={}\nshare_target_sn={}\nshare_target_pubkey={}\nshare_target_slot={}\n",
         volume_id, target_sn, target_pubkey, target_slot
     );
 
