@@ -114,8 +114,16 @@ pub fn show_volumes_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
                                                         };
 
 
+                                                        let first_name = json["first_name"].as_str().unwrap_or("");
+                                                        let last_name = json["last_name"].as_str().unwrap_or("");
+                                                        let full_name = if first_name.is_empty() && last_name.is_empty() {
+                                                            "Inconnu".to_string()
+                                                        } else {
+                                                            format!("{} {}", first_name, last_name).trim().to_string()
+                                                        };
+
                                                         let info = crate::protocol::protocol::FetchedUserInfo {
-                                                            name: json["name"].as_str().unwrap_or("Inconnu").to_string(),
+                                                            name: full_name,
                                                             email: json["email"].as_str().unwrap_or("Inconnu").to_string(),
                                                             role: parsed_role,
                                                         };
@@ -282,49 +290,8 @@ pub fn show_volumes_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
 
                                     // 2. On déclenche si l'utilisateur clique OU si l'application le demande en arrière-plan
                                     if refresh_clicked || app.needs_volume_refresh {
-
-                                        // 3. On réinitialise la demande pour éviter de rafraîchir en boucle
                                         app.needs_volume_refresh = false;
-
-                                        if let Ok(output) = Command::new("/usr/bin/lsblk")
-                                            .args(&["-J", "-b", "-o", "NAME,MODEL,SIZE,TRAN,FSTYPE,PTTYPE,MOUNTPOINT,LABEL,FSUSED"])
-                                            .output()
-                                        {
-                                            let ouput_str = String::from_utf8_lossy(&output.stdout);
-                                            if let Ok(parsed) = serde_json::from_str::<LsblkOutput>(&ouput_str) {
-                                                let mut extracted_volumes = Vec::new();
-                                                for disk in parsed.blockdevices {
-                                                    if disk.tran.as_deref() == Some("usb") {
-                                                        if let Some(children) = disk.children {
-                                                            for part in children {
-                                                                if part.size < 10_000_000 { continue; }
-
-                                                                let total_gb = part.size as f64 / 1_073_741_824.0;
-
-                                                                let used_gb = part.fsused.as_ref().and_then(|val| {
-                                                                    if let Some(bytes) = val.as_u64() {
-                                                                        Some(bytes as f64 / 1_073_741_824.0)
-                                                                    } else if let Some(s) = val.as_str() {
-                                                                        s.parse::<f64>().ok().map(|b| b / 1_073_741_824.0)
-                                                                    } else {
-                                                                        None
-                                                                    }
-                                                                });
-                                                                extracted_volumes.push(VolumeInfo {
-                                                                    name: part.label.unwrap_or_else(|| part.name.clone()),
-                                                                    device_path: format!("/dev/{}", part.name),
-                                                                    total_space_gb: (total_gb * 10.0).round() / 10.0,
-                                                                    used_space_gb: used_gb.map(|v| (v * 10.0).round() / 10.0),
-                                                                    is_mounted: part.mountpoint.is_some(),
-                                                                    mount_point: part.mountpoint,
-                                                                });
-                                                            }
-                                                        }
-                                                    }
-                                                }
-                                                app.dashboard_volumes = extracted_volumes;
-                                            }
-                                        }
+                                        let _ = app.sender.send(ApiMessage::RequestVolumeRefresh);
                                     }
                                 });
                             });
@@ -410,7 +377,7 @@ pub fn show_volumes_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
                                                 if ui.button(egui::RichText::new("Supprimer le volume").color(egui::Color32::RED)).clicked() {
                                                     app.dashboard_status = "Suppression en cours...".to_string();
                                                     app.is_loading = true;
-                                                    let _ = app.sender.send(ApiMessage::StartVolumeDeletion(vol.name.clone()));
+                                                    let _ = app.sender.send(ApiMessage::StartVolumeDeletion(vol.name.clone(), vol.device_path.clone()));
                                                 }
 
 
@@ -809,7 +776,11 @@ pub fn show_volumes_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
 
                                 ui.horizontal(|ui| {
                                     ui.label("Nom du volume :");
-                                    ui.add(egui::TextEdit::singleline(&mut app.volume_created_name).min_size(egui::vec2(200.0, 20.0)));
+                                    ui.add(
+                                        egui::TextEdit::singleline(&mut app.volume_created_name)
+                                            .min_size(egui::vec2(200.0, 20.0))
+                                            .char_limit(11),
+                                    );
                                 });
 
                                 ui.add_space(10.0);

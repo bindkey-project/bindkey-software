@@ -199,6 +199,12 @@ impl eframe::App for BindKeyApp {
                     }
                 }
             }
+            
+            // Si on vient de brancher la clé (passage de false à true)
+            if !self.usb_connected && !found_port.is_empty() {
+                let _ = self.sender.send(ApiMessage::RequestVolumeRefresh);
+            }
+
             self.usb_connected = !found_port.is_empty();
             self.current_port_name = found_port;
         }
@@ -226,12 +232,14 @@ impl eframe::App for BindKeyApp {
                     self.current_page = Page::Home;
                 };
                 ui.add_space(10.0);
-                if (self.role_user == Role::ENROLLER || self.role_user == Role::ADMIN)
-                    && ui.button("Enrôlement").clicked()
-                {
-                    self.current_page = Page::Enrollment;
-                };
-                ui.add_space(10.0);
+
+                if self.role_user == Role::ENROLLER || self.role_user == Role::ADMIN {
+                    if ui.button("Enrôlement").clicked() {
+                        self.current_page = Page::Enrollment;
+                    }
+                    ui.add_space(10.0);
+                }
+
                 if ui.button("Volume").clicked() {
                     self.current_page = Page::Volume;
                 };
@@ -255,20 +263,22 @@ impl eframe::App for BindKeyApp {
                             .bearer_auth(clone_auth_token)
                             .send()
                             .await;
+                            
+                        // On force la déconnexion côté client dans TOUS les cas
+                        let _ = clone_sender.send(ApiMessage::LogOutSuccess);
+
                         match result {
                             Ok(response) => {
-                                if response.status().is_success() {
-                                    let _ = clone_sender.send(ApiMessage::LogOutSuccess);
-                                } else {
+                                if !response.status().is_success() {
                                     let _ = clone_sender.send(ApiMessage::LogOutError(format!(
-                                        "Erreur lors de la déconnexion: {}",
+                                        "Erreur serveur lors de la déconnexion: {}",
                                         response.status()
                                     )));
                                 }
                             }
                             Err(e) => {
                                 let _ = clone_sender.send(ApiMessage::LogOutError(format!(
-                                    "Erreur lors de la communication avec le serveur: {}",
+                                    "Erreur réseau lors de la déconnexion: {}",
                                     e
                                 )));
                             }

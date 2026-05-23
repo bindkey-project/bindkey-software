@@ -20,3 +20,23 @@ impl AppConfig {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_default_config() {
+        let config = AppConfig::default();
+        assert_eq!(config.api_url, "https://api.bindkey.local");
+    }
+
+    #[test]
+    fn test_config_serialization() {
+        let config = AppConfig {
+            api_url: "https://test.local".to_string(),
+        };
+        let toml_string = toml::to_string(&config).unwrap();
+        assert!(toml_string.contains("https://test.local"));
+    }
+}

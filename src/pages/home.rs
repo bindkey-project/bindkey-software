@@ -67,7 +67,7 @@ pub fn show_home_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
             ui.set_width(ui.available_width());
             ui.heading("Sécurité");
             ui.separator();
-            ui.label("Volumes chiffrés actifs : 2");
+            ui.label(format!("Volumes chiffrés actifs : {}", app.dashboard_volumes.len()));
             ui.label("Firmware : v1.0.4");
         });
 
@@ -88,11 +88,13 @@ pub fn show_home_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
                 app.active_tab = VolumeTab::Gestion; // Ça téléporte l'utilisateur !
             }
 
-            ui.add_space(10.0);
-            let btn_enroll = egui::Button::new("Enrôler une nouvelle clé")
-                .min_size(egui::vec2(ui.available_width(), 40.0));
-            if ui.add(btn_enroll).clicked() {
-                app.current_page = Page::Enrollment;
+            if app.role_user == crate::protocol::protocol::Role::ENROLLER || app.role_user == crate::protocol::protocol::Role::ADMIN {
+                ui.add_space(10.0);
+                let btn_enroll = egui::Button::new("Enrôler une nouvelle clé")
+                    .min_size(egui::vec2(ui.available_width(), 40.0));
+                if ui.add(btn_enroll).clicked() {
+                    app.current_page = Page::Enrollment;
+                }
             }
         });
     });

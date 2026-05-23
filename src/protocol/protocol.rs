@@ -84,9 +84,10 @@ pub enum ApiMessage {
     // TargetCertificateReceived(Result<String, String>),
     //EncryptedVolumeKeyReady(Result<String, String>),
     RequestVolumeRefresh,
+    VolumesUpdated(Vec<VolumeInfo>),
     SharePipelineStatus(String),
-    StartVolumeDeletion(String),
-    VolumeIdReceivedForDeletion(String, String),
+    StartVolumeDeletion(String, String), // Nom, Chemin du périphérique (/dev/sda1)
+    VolumeIdReceivedForDeletion(String, String, String), // Nom, ID, Chemin du périphérique
     VolumeDeletedOnServer(String),
     VolumeDeletionError(String),
 }
@@ -306,4 +307,54 @@ pub fn create_secure_client() -> Result<Client, String> {
         .map_err(|e| format!("Erreur construction client Reqwest : {}", e))?;
 
     Ok(client)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use uuid::Uuid;
+
+    #[test]
+    fn test_role_serialization() {
+        let role = Role::ADMIN;
+        let json = serde_json::to_string(&role).unwrap();
+        assert_eq!(json, "\"ADMIN\"");
+    }
+
+    #[test]
+    fn test_register_payload_serialization() {
+        let payload = RegisterPayload {
+            first_name: "Alice".to_string(),
+            last_name: "Smith".to_string(),
+            email: "alice@bindkey.com".to_string(),
+            password: "hashed_password".to_string(),
+            user_role: Role::USER,
+            sn: "BK-12345".to_string(),
+            bindkey_status: StatusBindkey::ACTIVE,
+            pub_sign: "pub_sign_key".to_string(),
+            pub_ecdh: "pub_ecdh_key".to_string(),
+        };
+
+        let json = serde_json::to_string(&payload).unwrap();
+        assert!(json.contains("Alice"));
+        assert!(json.contains("alice@bindkey.com"));
+        assert!(json.contains("USER"));
+        assert!(json.contains("ACTIVE"));
+    }
+
+    #[test]
+    fn test_challenge_response_deserialization() {
+        let json_data = r#"
+        {
+            "auth_challenge": "random_nonce_123",
+            "session_id": "urn:uuid:123e4567-e89b-12d3-a456-426614174000"
+        }
+        "#;
+        
+        // This will fail if the UUID parsing logic is wrong or fields don't match.
+        let result: Result<ChallengeResponse, _> = serde_json::from_str(json_data);
+        assert!(result.is_ok());
+        let challenge = result.unwrap();
+        assert_eq!(challenge.auth_challenge, "random_nonce_123");
+    }
 }

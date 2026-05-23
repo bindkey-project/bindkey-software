@@ -131,7 +131,7 @@ pub fn show_enrollment_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
                                             let _ = port.write_data_terminal_ready(true);
                                             std::thread::sleep(std::time::Duration::from_millis(100));
 
-                                            let _ = sender.send(ApiMessage::EnrollmentError("👆 Veuillez placer votre doigt 3 fois sur le capteur...".to_string()));
+                                            let _ = sender.send(ApiMessage::EnrollmentError("👆 Veuillez placer votre doigt 2 fois sur le capteur...".to_string()));
                                             let cmd = "enroll".to_string(); 
 
                                             match crate::usb_service::send_text_command(&mut *port, &cmd) {

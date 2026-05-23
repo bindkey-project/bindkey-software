@@ -48,6 +48,9 @@ pub fn send_text_command(
                         results.insert(clean_key.to_string(), clean_val.to_string());
 
                         if clean_key == "STATUS" {
+                            if clean_val.starts_with("ERR=") {
+                                return Err(format!("Erreur Clé : {}", &clean_val[4..]));
+                            }
                             return Ok(results); // On rend la main au programme principal !
                         }
                     }
