@@ -199,7 +199,7 @@ impl eframe::App for BindKeyApp {
                     }
                 }
             }
-            
+
             // Si on vient de brancher la clé (passage de false à true)
             if !self.usb_connected && !found_port.is_empty() {
                 let _ = self.sender.send(ApiMessage::RequestVolumeRefresh);
@@ -263,7 +263,7 @@ impl eframe::App for BindKeyApp {
                             .bearer_auth(clone_auth_token)
                             .send()
                             .await;
-                            
+
                         // On force la déconnexion côté client dans TOUS les cas
                         let _ = clone_sender.send(ApiMessage::LogOutSuccess);
 

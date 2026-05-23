@@ -350,7 +350,7 @@ mod tests {
             "session_id": "urn:uuid:123e4567-e89b-12d3-a456-426614174000"
         }
         "#;
-        
+
         // This will fail if the UUID parsing logic is wrong or fields don't match.
         let result: Result<ChallengeResponse, _> = serde_json::from_str(json_data);
         assert!(result.is_ok());
