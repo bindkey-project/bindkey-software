@@ -208,47 +208,112 @@ pub fn handle_api_message(app: &mut BindKeyApp, message: ApiMessage) {
             }
         }
         ApiMessage::FetchUsers => {
+            app.search_result = None;
             let clone_sender = app.sender.clone();
             let url = app.config.api_url.clone();
             let clone_auth_token = app.server_token.clone();
             let clone_api_client = app.api_client.clone();
+
             tokio::spawn(async move {
-                if let Ok(resp) = clone_api_client
-                    .get(format!("{}/users", url))
+                println!("DÉBOGAGE TOKEN (FetchUsers) : [{}]", clone_auth_token);
+                let url = format!("{}/admin/users", url);
+                let resultat = clone_api_client
+                    .get(url)
                     .bearer_auth(clone_auth_token)
                     .send()
-                    .await
-                {
-                    if let Ok(users) = resp.json::<Vec<User>>().await {
-                        let _ = clone_sender.send(ApiMessage::UserFetched(users));
+                    .await;
+
+                match resultat {
+                    Ok(response) => {
+                        if response.status().is_success() {
+                            match response.json::<Vec<User>>().await {
+                                Ok(users) => {
+                                    let _ = clone_sender.send(ApiMessage::UserFetched(users));
+                                }
+                                Err(e) => {
+                                    let _ = clone_sender
+                                        .send(ApiMessage::FetchUsersError(format!("{}", e)));
+                                }
+                            }
+                        } else {
+                            let _ = clone_sender.send(ApiMessage::FetchUsersError(format!(
+                                "Erreur serveur: {}",
+                                response.status()
+                            )));
+                            println!(
+                                "code: {}, {:?}",
+                                response.status(),
+                                response
+                                    .text()
+                                    .await
+                                    .unwrap_or_else(|_| "Impossible".to_string())
+                            );
+                        }
+                    }
+                    Err(e) => {
+                        let _ = clone_sender
+                            .send(ApiMessage::FetchUsersError(format!("Erreur réseau: {}", e)));
                     }
                 }
             });
         }
-        ApiMessage::UserFetched(users) => app.users_list = users,
-        ApiMessage::DeleteUser(id) => {
+        ApiMessage::UserFetched(users) => {
+            app.users_list = users;
+            app.enroll_status = format!("Liste mise à jour : {}", app.users_list.len());
+        }
+        ApiMessage::DeleteUser(user_id) => {
             let clone_sender = app.sender.clone();
-            let url = app.config.api_url.clone();
+            let url = format!("{}/admin/users/{}", app.config.api_url, user_id);
             let clone_auth_token = app.server_token.clone();
             let clone_api_client = app.api_client.clone();
+
             tokio::spawn(async move {
-                let _ = clone_api_client
-                    .delete(format!("{}/users/{}", url, id))
+                let resultat = clone_api_client
+                    .delete(url)
                     .bearer_auth(clone_auth_token)
                     .send()
                     .await;
-                let _ = clone_sender.send(ApiMessage::UserDeleted);
+
+                match resultat {
+                    Ok(reponse) => {
+                        if reponse.status().is_success() {
+                            let _ = clone_sender.send(ApiMessage::UserDeleted);
+                        } else {
+                            let _ = clone_sender.send(ApiMessage::DeleteUserError(format!(
+                                "Erreur lors de la suppression: {}",
+                                reponse.status()
+                            )));
+                            println!(
+                                "code: {}, {:?}",
+                                reponse.status(),
+                                reponse
+                                    .text()
+                                    .await
+                                    .unwrap_or_else(|_| "Impossible".to_string())
+                            );
+                        }
+                    }
+                    Err(e) => {
+                        let _ = clone_sender.send(ApiMessage::DeleteUserError(format!(
+                            "Erreur serveur: {}",
+                            e
+                        )));
+                    }
+                }
             });
         }
         ApiMessage::UserDeleted => {
+            app.enroll_status = "Utilisateur bien supprimé".to_string();
             let _ = app.sender.send(ApiMessage::FetchUsers);
         }
         ApiMessage::SearchUserByEmail(email) => {
+            app.users_list.clear();
             let clone_sender = app.sender.clone();
             let url = app.config.api_url.clone();
             let clone_auth_token = app.server_token.clone();
             let clone_api_client = app.api_client.clone();
             tokio::spawn(async move {
+                println!("DÉBOGAGE TOKEN (Search) : [{}]", clone_auth_token);
                 match clone_api_client
                     .get(format!("{}/admin/users/search?email={}", url, email))
                     .bearer_auth(clone_auth_token)

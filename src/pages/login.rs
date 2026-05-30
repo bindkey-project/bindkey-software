@@ -125,8 +125,8 @@ fn handle_admin_login(app: &mut BindKeyApp) {
                     if let Ok(data) = response.json::<LoginSuccessResponse>().await {
                         let _ = clone_sender.send(ApiMessage::LoginSuccess(
                             data.role,
-                            data.server_token,
                             data.first_name,
+                            data.server_token,
                             data.local_token,
                             String::new(),
                         ));

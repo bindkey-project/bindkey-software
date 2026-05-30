@@ -51,7 +51,7 @@ pub fn show_home_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
 
         frame_style.show(&mut cols[0], |ui| {
             ui.set_width(ui.available_width());
-            ui.heading("🟢 Statut de la clé");
+            ui.heading("Statut de la clé");
             ui.separator();
             if app.usb_connected {
                 ui.label("BindKey détectée et prête.");
@@ -115,7 +115,7 @@ pub fn show_home_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
         });
 
     card_frame.show(ui, |ui| {
-        ui.heading("⚙️ Système & Mises à jour");
+        ui.heading("Système & Mises à jour");
         ui.separator();
         ui.add_space(10.0);
 

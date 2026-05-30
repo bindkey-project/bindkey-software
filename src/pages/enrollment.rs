@@ -146,7 +146,7 @@ pub fn show_enrollment_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
                                                         // On envoie le succès à l'Event Handler qui fera l'appel API !
                                                         let _ = sender.send(ApiMessage::EnrollmentUsbSuccess(data));
                                                     } else {
-                                                        let _ = sender.send(ApiMessage::EnrollmentError("Données UID ou PK manquantes depuis la clé".to_string()));
+                                                        let _ = sender.send(ApiMessage::EnrollmentError("Erreur: SN, PUB_SIGN ou PUB_ECDH manquant dans la réponse".to_string()));
                                                     }
                                                 }
                                                 Err(e) => {
@@ -247,6 +247,16 @@ pub fn show_enrollment_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
                         }
                     });
 
+                    ui.add_space(10.0);
+
+                    // --- BOUTON VOIR TOUS LES UTILISATEURS ---
+                    if ui.add_sized(
+                        [ui.available_width(), 35.0],
+                        egui::Button::new(egui::RichText::new("📋 Afficher tous les utilisateurs").size(16.0))
+                    ).clicked() {
+                        let _ = app.sender.send(ApiMessage::FetchUsers);
+                    }
+
                     ui.add_space(20.0);
 
                     // --- 2. RÉSULTAT : CARTE UTILISATEUR ---
@@ -267,13 +277,13 @@ pub fn show_enrollment_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
                                         ui.label(egui::RichText::new(format!("📧 {}", user_data.email)).size(20.0).italics());
                                         ui.add_space(4.0);
                                         // Rôle lisible (taille 16)
-                                        ui.label(egui::RichText::new(format!("🛡️ Rôle : {:?}", user_data.role)).size(20.0));
+                                        ui.label(egui::RichText::new(format!("Rôle : {:?}", user_data.role)).size(20.0));
                                     });
 
                                     // Bouton Supprimer aligné à droite avec icône et texte ajustés
                                     if user_data.email != app.login_email {
                                         ui.with_layout(egui::Layout::right_to_left(egui::Align::TOP), |ui| {
-                                            if ui.button(egui::RichText::new("🗑️ Supprimer").size(20.0).color(egui::Color32::LIGHT_RED)).clicked() {
+                                            if ui.button(egui::RichText::new("Supprimer").size(20.0).color(egui::Color32::LIGHT_RED)).clicked() {
                                                 let _ = app.sender.send(ApiMessage::DeleteUser(user_data.id.clone()));
                                             }
                                         });
@@ -352,6 +362,38 @@ pub fn show_enrollment_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
                                 }
                             }); // Fin Frame Utilisateur
                     } // Fin du if let Some(user_data)
+
+                    // --- 4. RÉSULTAT : LISTE DE TOUS LES UTILISATEURS ---
+                    if !app.users_list.is_empty() {
+                        ui.label(egui::RichText::new(format!("👥 Utilisateurs enregistrés ({})", app.users_list.len())).size(20.0).strong());
+                        ui.add_space(10.0);
+
+                        egui::ScrollArea::vertical().id_salt("users_list_scroll").max_height(400.0).show(ui, |ui| {
+                            for user in &app.users_list {
+                                egui::Frame::group(ui.style())
+                                    .inner_margin(10.0)
+                                    .rounding(6.0)
+                                    .show(ui, |ui| {
+                                        ui.horizontal(|ui| {
+                                            ui.vertical(|ui| {
+                                                ui.label(egui::RichText::new(format!("{} {}", user.first_name, user.last_name)).size(18.0).strong());
+                                                ui.label(egui::RichText::new(&user.email).italics());
+                                            });
+                                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                                ui.label(egui::RichText::new(format!("{:?}", user.role)).strong());
+                                                if user.email != app.login_email {
+                                                    if ui.button("Supprimer").clicked() {
+                                                        let _ = app.sender.send(ApiMessage::DeleteUser(user.id.clone()));
+                                                    }
+                                                }
+                                            });
+                                        });
+                                    });
+                                ui.add_space(5.0);
+                            }
+                        });
+                    }
+
                 }); // Fin du card_frame.show (ADMIN)
 
                 } else {

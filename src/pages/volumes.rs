@@ -102,25 +102,34 @@ pub fn show_volumes_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
                                         match clone_api_client.get(&url).bearer_auth(clone_token).send().await {
                                             Ok(resp) => {
                                                 if resp.status().is_success() {
-                                                    if let Ok(json) = resp.json::<serde_json::Value>().await {
-                                                        // ⚠️ À adapter selon ton JSON
+                                                    let text = resp.text().await.unwrap_or_default();
+                                                    println!("Raw Share Search JSON: {}", text); // DEBOGAGE
+
+                                                    // On essaie de parser en User directly
+                                                    if let Ok(user) = serde_json::from_str::<crate::protocol::protocol::User>(&text) {
+                                                        let full_name = if user.first_name.is_empty() && user.last_name.is_empty() {
+                                                            "Inconnu".to_string()
+                                                        } else {
+                                                            format!("{} {}", user.first_name, user.last_name).trim().to_string()
+                                                        };
+
+                                                        let info = crate::protocol::protocol::FetchedUserInfo {
+                                                            name: full_name,
+                                                            email: user.email,
+                                                            role: user.role,
+                                                        };
+                                                        let _ = clone_sender.send(ApiMessage::UserSearchResult(Ok(info)));
+                                                    } else if let Ok(json) = serde_json::from_str::<serde_json::Value>(&text) {
+                                                        // Fallback pour le JSON qui renvoie "name" direct au lieu de first_name/last_name
                                                         let role_str = json["role"].as_str().unwrap_or("Utilisateur");
 
                                                         let parsed_role = match role_str {
                                                             "Admin" | "admin" => crate::protocol::protocol::Role::ADMIN,
                                                             "Utilisateur" | "utilisateur" | "User" | "user" => crate::protocol::protocol::Role::USER,
-                                                            // Le cas par défaut si le serveur renvoie n'importe quoi
                                                             _ => crate::protocol::protocol::Role::USER,
                                                         };
 
-
-                                                        let first_name = json["first_name"].as_str().unwrap_or("");
-                                                        let last_name = json["last_name"].as_str().unwrap_or("");
-                                                        let full_name = if first_name.is_empty() && last_name.is_empty() {
-                                                            "Inconnu".to_string()
-                                                        } else {
-                                                            format!("{} {}", first_name, last_name).trim().to_string()
-                                                        };
+                                                        let full_name = json["name"].as_str().unwrap_or("Inconnu").to_string();
 
                                                         let info = crate::protocol::protocol::FetchedUserInfo {
                                                             name: full_name,
@@ -980,23 +989,12 @@ pub fn show_volumes_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
                         ui.colored_label(egui::Color32::RED, "Sécurité : Plusieurs clés détectées. Veuillez n'en brancher qu'une seule pour le formatage.");
                     }
                     else {
-                        ui.label("Branchez une Binkey et lancez l'analyse dans l'onglet 'Gestion des volumes' pour la formater");
+                        ui.label("Branchez une BindKey et lancez l'analyse dans l'onglet 'Gestion des volumes' pour la formater");
                     }
 
                     ui.add_space(20.0);
 
                     // Affichage dynamique du statut
-                    if !app.formatage_status.is_empty() {
-                        let color = if app.formatage_status.contains("Erreur") || app.formatage_status.contains("Refus") {
-                            egui::Color32::from_rgb(255, 100, 100)
-                        } else {
-                            egui::Color32::from_rgb(100, 200, 255)
-                        };
-                        ui.colored_label(color, &app.formatage_status);
-                    }
-
-                    ui.add_space(20.0);
-
                     if !app.formatage_status.is_empty() {
                         let color = if app.formatage_status.contains("Erreur") || app.formatage_status.contains("Refus") {
                             egui::Color32::from_rgb(255, 100, 100)
