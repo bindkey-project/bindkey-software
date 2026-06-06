@@ -43,7 +43,7 @@ pub fn show_enrollment_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
 
                     egui::Grid::new("enroll_form_grid")
                         .num_columns(2)
-                        .spacing([10.0, 15.0]) // Espacement un peu réduit
+                        .spacing([10.0, 15.0])
                         .show(ui, |ui| {
                             ui.label("Prénom :");
                             // f32::INFINITY = "Prends l'espace dispo sans déborder"
@@ -86,7 +86,7 @@ pub fn show_enrollment_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
                         });
                 });
 
-                ui.add_space(20.0); // Espace entre les deux cartes de gauche
+                ui.add_space(20.0);
 
                 // --- CARTE DES ACTIONS ---
                 card_frame.show(ui, |ui| {
@@ -118,7 +118,6 @@ pub fn show_enrollment_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
                                 let port_name = app.current_port_name.clone();
 
                                 tokio::spawn(async move {
-                                    // On utilise EnrollmentError comme "hack" pour afficher un message de statut d'attente
                                     let _ = sender.send(ApiMessage::EnrollmentError("Attente de la clé USB...".to_string()));
 
                                     if port_name.is_empty() {
@@ -136,7 +135,6 @@ pub fn show_enrollment_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
 
                                             match crate::usb_service::send_text_command(&mut *port, &cmd) {
                                                 Ok(map) => {
-                                                    // On cherche l'UID et la clé publique renvoyés par la BindKey
                                                     if let (Some(sn), Some(pub_sign), Some(pub_ecdh)) = (map.get("SN"), map.get("PUB_SIGN"), map.get("PUB_ECDH")) {
                                                         let data = UsbResponse::Success(SuccessData::EnrollmentInfo {
                                                             sn: sn.clone(),
@@ -226,7 +224,6 @@ pub fn show_enrollment_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
 
                     // --- 1. BARRE DE RECHERCHE MODERNE ---
                     ui.horizontal(|ui| {
-                        // Le champ de recherche un peu plus haut
                         let search_box = ui.add_sized(
                             [ui.available_width() - 120.0, 35.0],
                             egui::TextEdit::singleline(&mut app.search_email_input)
@@ -268,15 +265,11 @@ pub fn show_enrollment_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
                             .show(ui, |ui| {
 
                                 ui.horizontal(|ui| {
-                                    // Infos à gauche
                                     ui.vertical(|ui| {
-                                        // Nom bien en évidence (taille 22)
                                         ui.label(egui::RichText::new(format!("👤 {} {}", user_data.first_name, user_data.last_name)).size(24.0).strong());
                                         ui.add_space(4.0);
-                                        // Email lisible (taille 16)
                                         ui.label(egui::RichText::new(format!("📧 {}", user_data.email)).size(20.0).italics());
                                         ui.add_space(4.0);
-                                        // Rôle lisible (taille 16)
                                         ui.label(egui::RichText::new(format!("Rôle : {:?}", user_data.role)).size(20.0));
                                     });
 
@@ -302,16 +295,13 @@ pub fn show_enrollment_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
                                     egui::Frame::none()
                                         .fill(ui.visuals().faint_bg_color)
                                         .rounding(6.0)
-                                        .inner_margin(16.0) // Marge augmentée pour respirer
+                                        .inner_margin(16.0)
                                         .show(ui, |ui| {
                                             ui.horizontal(|ui| {
 
-                                                // Infos BindKey à gauche
                                                 ui.vertical(|ui| {
-                                                    // Titre moins agressif
                                                     ui.label(egui::RichText::new("📌 Numéro de Série").size(20.0));
                                                     ui.add_space(2.0);
-                                                    // La vraie valeur beaucoup plus lisible !
                                                     ui.label(egui::RichText::new(&bk.serial_number).size(20.0).monospace().strong());
                                                 });
 
@@ -345,7 +335,6 @@ pub fn show_enrollment_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
                                             });
                                         });
                                 } else {
-                                    // Message d'avertissement plus aéré
                                     egui::Frame::none()
                                         .fill(egui::Color32::from_rgba_unmultiplied(255, 165, 0, 20))
                                         .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(255, 165, 0)))
@@ -360,8 +349,8 @@ pub fn show_enrollment_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
                                             });
                                         });
                                 }
-                            }); // Fin Frame Utilisateur
-                    } // Fin du if let Some(user_data)
+                            });
+                    }
 
                     // --- 4. RÉSULTAT : LISTE DE TOUS LES UTILISATEURS ---
                     if !app.users_list.is_empty() {
@@ -394,7 +383,7 @@ pub fn show_enrollment_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
                         });
                     }
 
-                }); // Fin du card_frame.show (ADMIN)
+                });
 
                 } else {
                     // =========================================================
@@ -429,7 +418,7 @@ pub fn show_enrollment_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
                         ui.colored_label(color, &app.enroll_status);
                     }
                 });
-            }); // Fin du cols[1].vertical
+            });
         });
     });
 }

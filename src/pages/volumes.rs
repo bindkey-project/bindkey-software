@@ -160,7 +160,6 @@ pub fn show_volumes_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
                             }
 
                             // --- AFFICHAGE DU RÉSULTAT ET BOUTON DE CONFIRMATION ---
-                            // --- AFFICHAGE DU RÉSULTAT ET BOUTON DE CONFIRMATION ---
                             if let (Some(name), Some(email), Some(role)) = (&app.share_target_name, &app.share_target_email, &app.share_target_role) {
                                 ui.add_space(20.0);
                                 egui::Frame::group(ui.style()).show(ui, |ui| {
@@ -272,7 +271,6 @@ pub fn show_volumes_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
                                     if !app.share_pipeline_status.is_empty() {
                                         ui.add_space(10.0);
 
-                                        // Si c'est une erreur (contient '❌'), on affiche en rouge, sinon en bleu clair
                                         let status_lower = app.share_pipeline_status.to_lowercase();
                                         let color = if status_lower.contains("erreur") || status_lower.contains("refus") || status_lower.contains("échec") {
                                             egui::Color32::LIGHT_RED
@@ -294,10 +292,10 @@ pub fn show_volumes_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
 
                                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
 
-                                    // 1. On stocke l'état du clic dans une variable
+                                    // On stocke l'état du clic dans une variable
                                     let refresh_clicked = ui.button(egui::RichText::new("🔄 Actualiser").size(16.0)).clicked();
 
-                                    // 2. On déclenche si l'utilisateur clique OU si l'application le demande en arrière-plan
+                                    // On déclenche si l'utilisateur clique OU si l'application le demande en arrière-plan
                                     if refresh_clicked || app.needs_volume_refresh {
                                         app.needs_volume_refresh = false;
                                         let _ = app.sender.send(ApiMessage::RequestVolumeRefresh);
@@ -825,24 +823,6 @@ pub fn show_volumes_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
                                         let clone_device_path = app.available_devices[0].path.clone();
 
                                         tokio::spawn(async move {
-                                           /*  let bypass_server = true;
-                                            // =========================================================
-                                            // 1. VÉRIFICATION SERVEUR (Inchangé)
-                                            // =========================================================
-                                            let serveur_volume_id = if bypass_server {
-                                                tokio::time::sleep(std::time::Duration::from_millis(800)).await;
-                                                let _ = clone_sender.send(ApiMessage::VolumeCreationStatus("[SIMU] Nom validé. Calcul des secteurs...".to_string()));
-
-                                                // 🟢 On incrémente le compteur de 1 à chaque fois
-                                                // (Ordering::SeqCst garantit que l'incrémentation est synchronisée entre tous les threads)
-                                                let count = SIMU_VOLUME_COUNTER.fetch_add(1, Ordering::SeqCst);
-
-                                                // On génère une chaîne unique : ID-SIMULATION-00001, ID-SIMULATION-00002...
-                                                format!("ID-SIMU-{:05}", count)
-                                            } else {
-                                                
-                                            };
-                                            */
 
                                         let url = format!("{}/volumes/verify", clone_url);
                                         let payload = VolumeInitInfo {
@@ -851,7 +831,7 @@ pub fn show_volumes_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
 
                                         let resultat = clone_api_client.post(url).json(&payload).bearer_auth(clone_auth_token).send().await;
 
-                                        // 🌟 On assigne le résultat à une variable et on attend un Uuid
+                                        // On assigne le résultat à une variable et on attend un Uuid
                                         let mon_id_serveur: String = match resultat {
                                         Ok(response) if response.status().is_success() => {
                                             let raw_text = response.text().await.unwrap_or_default();
@@ -889,7 +869,6 @@ pub fn show_volumes_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
                                             }
                                         };
 
-                                            // À partir d'ici, tu peux utiliser `volume_id_str` (qui est une String) pour l'envoyer à la BindKey
                                             // =========================================================
                                             // 2. CRÉATION, COMMUNICATION USB & FORMATAGE (Tout-en-un)
                                             // =========================================================
@@ -903,7 +882,6 @@ pub fn show_volumes_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
 
                                             // On utilise spawn_blocking car create_and_format_partition exécute des commandes OS synchrones
                                             let partition_result = tokio::task::spawn_blocking(move || {
-                                                // ⚠️ Remplace "crate::ton_module" par le chemin réel vers ta fonction
                                                 create_and_format_partition(
                                                     &device_path_for_thread,
                                                     clone_volume_size as f64,

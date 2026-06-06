@@ -62,12 +62,10 @@ struct BindKeyApp {
     pub share_search_feedback: String,
     pub is_searching_user: bool,
 
-    // Les infos basiques récupérées
     pub share_target_name: Option<String>,
     pub share_target_email: Option<String>,
     pub share_target_role: Option<Role>,
 
-    // Pour déclencher l'étape suivante
     pub show_volume_selection: bool,
 
     pub sharing_active_volume: Option<VolumeInfo>,
@@ -77,7 +75,6 @@ struct BindKeyApp {
     pub needs_volume_refresh: bool,
 
     pub local_bindkey_sn: Option<String>,
-    pub active_volume_id_hex: Option<String>,
 }
 
 impl BindKeyApp {
@@ -171,7 +168,6 @@ impl BindKeyApp {
             share_pipeline_status: String::new(),
             needs_volume_refresh: false,
             local_bindkey_sn: None,
-            active_volume_id_hex: None,
         }
     }
 }

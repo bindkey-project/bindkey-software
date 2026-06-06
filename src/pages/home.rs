@@ -10,7 +10,7 @@ pub fn show_home_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
         .auto_shrink([false, false])
         .show(ui, |ui| {
             let card_frame = egui::Frame::none()
-        .fill(ui.visuals().window_fill()) // <-- Correction ici : () ajoutées
+        .fill(ui.visuals().window_fill())
         .rounding(15.0)
         .stroke(ui.visuals().window_stroke())
         .inner_margin(30.0);
@@ -37,12 +37,10 @@ pub fn show_home_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
     });
     ui.add_space(30.0);
 
-    // On crée 2 colonnes de même largeur pour mettre les cartes côte à côte
     ui.columns(2, |cols| {
         // ==========================================
         // COLONNE GAUCHE (Statuts)
         // ==========================================
-        // LA CORRECTION RUST EST ICI : On utilise cols[0].visuals() au lieu de ui.visuals()
         let frame_style = egui::Frame::none()
             .fill(cols[0].visuals().window_fill())
             .rounding(10.0)
@@ -55,13 +53,12 @@ pub fn show_home_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
             ui.separator();
             if app.usb_connected {
                 ui.label("BindKey détectée et prête.");
-                // Ajouter ici une ProgressBar d'espace libre !
             } else {
                 ui.colored_label(egui::Color32::RED, "Veuillez brancher votre BindKey.");
             }
         });
 
-        cols[0].add_space(15.0); // Espace vertical entre deux cartes de la même colonne
+        cols[0].add_space(15.0);
 
         frame_style.show(&mut cols[0], |ui| {
             ui.set_width(ui.available_width());
@@ -80,12 +77,11 @@ pub fn show_home_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
             ui.separator();
 
             ui.add_space(10.0);
-            // Un gros bouton qui prend toute la largeur
             let btn_create = egui::Button::new("Créer un Volume")
                 .min_size(egui::vec2(ui.available_width(), 40.0));
             if ui.add(btn_create).clicked() {
                 app.current_page = Page::Volume;
-                app.active_tab = VolumeTab::Gestion; // Ça téléporte l'utilisateur !
+                app.active_tab = VolumeTab::Gestion;
             }
 
             if app.role_user == crate::protocol::protocol::Role::ENROLLER || app.role_user == crate::protocol::protocol::Role::ADMIN {
@@ -126,7 +122,6 @@ pub fn show_home_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
 
         ui.add_space(15.0);
 
-        // CORRECTION 1 : La bonne syntaxe pour dimensionner un bouton
         if ui.add(egui::Button::new("🔄 Rechercher une mise à jour").min_size(egui::vec2(200.0, 30.0))).clicked() {
             let sender_clone = app.sender.clone();
 
@@ -179,26 +174,3 @@ pub fn show_home_page(app: &mut BindKeyApp, ui: &mut egui::Ui) {
     });
         });
 }
-
-/*
-ui.centered_and_justified(|ui| {
-        ui.vertical_centered(|ui| {
-            ui.heading(format!(
-                "Bienvenue sur l'App BindKey {}",
-                app.first_name_user
-            ));
-
-            ui.add_space(10.0);
-
-            ui.label(format!("Votre rôle est : {:?}", app.role_user));
-
-            ui.add_space(30.0);
-
-            ui.add(
-                egui::Image::new(egui::include_image!("../../bindkey.png"))
-                    .max_width(500.0)
-                    .rounding(10.0),
-            );
-        });
-    });
-*/

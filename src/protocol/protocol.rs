@@ -73,21 +73,17 @@ pub enum ApiMessage {
     UpdateBindKeyError(String),
     StartFormatBindKey {
         device_path: String,
-        // Adapte le type de partition selon ta structure (ex: Vec<Partition>)
         partitions: Vec<String>,
         port_name: String,
         volume_names: Vec<String>,
     },
     FormatStatus(String),
     UserSearchResult(Result<FetchedUserInfo, String>),
-    //   FetchTargetCertificate(String),
-    // TargetCertificateReceived(Result<String, String>),
-    //EncryptedVolumeKeyReady(Result<String, String>),
     RequestVolumeRefresh,
     VolumesUpdated(Vec<VolumeInfo>),
     SharePipelineStatus(String),
-    StartVolumeDeletion(String, String), // Nom, Chemin du périphérique (/dev/sda1)
-    VolumeIdReceivedForDeletion(String, String, String), // Nom, ID, Chemin du périphérique
+    StartVolumeDeletion(String, String),
+    VolumeIdReceivedForDeletion(String, String, String),
     VolumeDeletedOnServer(String),
     VolumeDeletionError(String),
 }
@@ -351,7 +347,6 @@ mod tests {
         }
         "#;
 
-        // This will fail if the UUID parsing logic is wrong or fields don't match.
         let result: Result<ChallengeResponse, _> = serde_json::from_str(json_data);
         assert!(result.is_ok());
         let challenge = result.unwrap();
