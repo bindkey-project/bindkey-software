@@ -16,7 +16,7 @@ jobs:
     runs-on: ubuntu-latest
     
     # ==========================================
-    # PERMISSIONS (Nécessaire pour créer la Release)
+    # PERMISSIONS
     # ==========================================
     permissions:
       contents: write 
@@ -42,7 +42,7 @@ jobs:
       run: cargo clippy 
       
     # =========================================================
-    # FIX 1 : Installation instantanée de cargo-audit (fini le cargo install !)
+    # Installation instantanée de cargo-audit
     # =========================================================
     - name: Install cargo-audit
       uses: taiki-e/install-action@cargo-audit
@@ -65,7 +65,7 @@ jobs:
         tar -czvf bindkey-linux-package.tar.gz -C release_package .
 
     # =========================================================
-    # FIX 2 : Installation instantanée de zipsign (fini le cargo install !)
+    # Installation instantanée de zipsign
     # =========================================================
     - name: Install zipsign
       uses: taiki-e/install-action@v2
