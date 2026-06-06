@@ -1,0 +1,46 @@
+use serde::{Deserialize, Serialize};
+use uuid::Uuid;
+
+#[derive(Debug, Clone, Copy)]
+#[repr(u8)]
+pub enum MessageType {
+    Command = 0x01,
+    Response = 0x02,
+    Error = 0xEE,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+#[repr(u8)]
+pub enum UsbResponse {
+    Success(SuccessData),
+
+    Error(String),
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+#[repr(u8)]
+#[serde(rename_all = "camelCase")]
+pub enum SuccessData {
+    EnrollmentInfo {
+        sn: String,
+        pub_sign: String,
+        pub_ecdh: String,
+    },
+
+    Signature {
+        signature: String,
+    },
+
+    DeviceInfo {
+        device_name: String,
+        device_size: f64,
+        device_available_size: f64,
+    },
+    VolumeCreated {
+        volume_id: String,
+        device_path: String,
+        partition_number: String,
+    },
+
+    Ack,
+}

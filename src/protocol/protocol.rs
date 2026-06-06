@@ -1,0 +1,355 @@
+use crate::protocol::share_protocol::UsbResponse;
+use reqwest::{Certificate, Client};
+use serde::{Deserialize, Serialize};
+use std::fmt::Debug;
+use std::fs;
+use std::net::{IpAddr, SocketAddr};
+use std::path::Path;
+use std::str;
+use std::str::FromStr;
+use std::time::Duration;
+use uuid::Uuid;
+
+//----------------------------------------- ÉNUMÉRATION---------------------------------
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub enum StatusBindkey {
+    ACTIVE,
+    RESET,
+    LOST,
+    BROKEN,
+}
+
+#[derive(PartialEq, Debug)]
+pub enum Page {
+    Login,
+    Home,
+    Enrollment,
+    Volume,
+}
+
+#[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
+pub enum Role {
+    USER,
+    ENROLLER,
+    ADMIN,
+    NONE,
+}
+
+#[derive(PartialEq)]
+pub enum VolumeTab {
+    Dashboard,
+    Gestion,
+    Formatage,
+}
+
+pub enum ApiMessage {
+    EnrollmentSuccess(String),
+    EnrollmentUsbSuccess(UsbResponse),
+    ModificationUsbSuccess(UsbResponse),
+    LoginError(String),
+    EnrollmentError(String),
+    ReceivedChallenge(String, Uuid, String),
+    SignedChallenge(String, Uuid, String),
+    LoginSuccess(Role, String, String, String, String),
+    VolumeCreationSuccess(UsbResponse),
+    VolumeCreationStatus(String),
+    VolumeDashboardStatus(String),
+    VolumeInfoReceived(UsbResponse),
+    FetchUsers,
+    FetchUsersError(String),
+    UserFetched(Vec<User>),
+    LogOutSuccess,
+    LogOutError(String),
+    DeleteUserError(String),
+    DeleteUser(Uuid),
+    UserDeleted,
+    UpdateStatus(String),
+    SearchUserByEmail(String),
+    UserFound(UserWithBindKey),
+    SearchUserError(String),
+    UpdateBindKeyStatus(String, StatusBindkey),
+    BindKeyStatusUpdated,
+    UpdateBindKeyError(String),
+    StartFormatBindKey {
+        device_path: String,
+        partitions: Vec<String>,
+        port_name: String,
+        volume_names: Vec<String>,
+    },
+    FormatStatus(String),
+    UserSearchResult(Result<FetchedUserInfo, String>),
+    RequestVolumeRefresh,
+    VolumesUpdated(Vec<VolumeInfo>),
+    SharePipelineStatus(String),
+    StartVolumeDeletion(String, String),
+    VolumeIdReceivedForDeletion(String, String, String),
+    VolumeDeletedOnServer(String),
+    VolumeDeletionError(String),
+}
+
+//--------------------------ÉNUMÉRATION (FIN)----------------------------
+
+//--------------------------STRUCT LOGIN (DÉBUT)----------------------------
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct ChallengeResponse {
+    pub auth_challenge: String,
+    pub session_id: Uuid,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct LoginSuccessResponse {
+    pub server_token: String,
+    pub role: Role,
+    pub first_name: String,
+    pub local_token: String,
+}
+
+//--------------------------STRUCT LOGIN (FIN)------------------------------
+
+//--------------------------STRUCT ENRÔLEMENT (DÉBUT)------------------------------
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct RegisterPayload {
+    pub first_name: String,
+    pub last_name: String,
+    pub email: String,
+    pub password: String,
+    pub user_role: Role,
+    pub sn: String,
+    pub bindkey_status: StatusBindkey,
+    pub pub_sign: String,
+    pub pub_ecdh: String,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct ModifyPayload {
+    pub email: String,
+    pub user_role: Role,
+}
+//--------------------------STRUCT ENRÔLEMENT (FIN)--------------------------------
+
+//--------------------------STRUCT VOLUME (DÉBUT)--------------------------------
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct VolumeInitInfo {
+    pub name: String,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct VolumeInitResponse {
+    pub volume_id: Option<String>,
+    pub exists: bool,
+}
+
+#[derive(Clone, Debug)]
+pub struct VolumeInfo {
+    pub name: String,
+    pub device_path: String,
+    pub total_space_gb: f64,
+    pub used_space_gb: Option<f64>,
+    pub is_mounted: bool,
+    pub mount_point: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct VolumeCreatedInfo {
+    pub name: String,
+    pub size_bytes: i64,
+    pub id: String,
+}
+
+#[derive(Clone, PartialEq)]
+pub struct UsbDevice {
+    pub path: String,
+    pub display_name: String,
+    pub partitions: Vec<String>,
+}
+
+#[derive(Deserialize)]
+pub struct LsblkOutput {
+    pub blockdevices: Vec<BlockDeviceJson>,
+}
+
+#[derive(Deserialize, Debug)]
+pub struct BlockDeviceJson {
+    pub name: String,
+    pub model: Option<String>,
+    pub size: u64,
+    pub tran: Option<String>,
+    pub fstype: Option<String>,
+    pub pttype: Option<String>,
+    pub mountpoint: Option<String>,
+    pub label: Option<String>,
+    #[serde(default)]
+    pub children: Option<Vec<BlockDeviceJson>>,
+    pub fsused: Option<serde_json::Value>,
+}
+
+#[derive(Deserialize)]
+pub struct PartitionJson {
+    pub name: String,
+}
+//--------------------------STRUCT VOLUME (FIN)--------------------------------
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct LogOut {
+    pub server_token: String,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct User {
+    pub id: Uuid,
+    pub first_name: String,
+    pub last_name: String,
+    pub email: String,
+    pub role: Role,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct BindKeyInfo {
+    pub serial_number: String,
+    pub status: StatusBindkey,
+}
+
+#[derive(Deserialize, Debug, Clone)]
+pub struct UserWithBindKey {
+    pub id: Uuid,
+    pub first_name: String,
+    pub last_name: String,
+    pub email: String,
+    pub role: Role,
+    pub bindkey: Option<BindKeyInfo>,
+}
+
+#[derive(Deserialize, Debug, Clone)]
+pub struct FetchedUserInfo {
+    pub name: String,
+    pub email: String,
+    pub role: Role,
+}
+
+//------------------------------ Struct De Partage ---------------------------------
+#[derive(Serialize)]
+pub struct ShareRequestPayload {
+    pub volume_name: String,
+    pub target_user_email: String,
+}
+
+#[derive(Deserialize)]
+pub struct ShareRequestResponse {
+    pub target_sn: String,
+    pub target_pubkey_ecdh: String,
+    pub target_slot: u16,
+    pub volume_id: String,
+}
+
+#[derive(Serialize)]
+pub struct ShareCompletePayload {
+    pub source_sn: String,
+    pub target_sn: String,
+    pub volume_id: String,
+    pub wrapped: String,
+}
+
+#[derive(Deserialize, Debug)]
+pub struct PendingShare {
+    pub share_id: String,
+    pub source_sn: String,
+    pub source_pubkey_ecdh: String,
+    pub slot: u16,
+    pub wrapped: String,
+    pub volume_id: String,
+}
+
+#[derive(Serialize)]
+pub struct ShareAckPayload {
+    pub share_id: String,
+}
+
+pub fn create_secure_client() -> Result<Client, String> {
+    let ip_filename = "server_ip.txt";
+    let default_ip = "10.10.10.187";
+
+    let ip_str = if Path::new(ip_filename).exists() {
+        fs::read_to_string(ip_filename)
+            .map_err(|e| format!("Impossible de lire {}: {}", ip_filename, e))?
+            .trim()
+            .to_string()
+    } else {
+        println!(
+            "⚠️ Fichier {} introuvable, utilisation de l'IP défaut : {}",
+            ip_filename, default_ip
+        );
+        default_ip.to_string()
+    };
+
+    let ip_addr =
+        IpAddr::from_str(&ip_str).map_err(|e| format!("IP invalide '{}': {}", ip_str, e))?;
+
+    let addr = SocketAddr::new(ip_addr, 31278);
+
+    let cert_bytes = include_bytes!("../../bindkey_cert.pem");
+
+    let cert = Certificate::from_pem(cert_bytes)
+        .map_err(|e| format!("Certificat PEM invalide/corrompu : {}", e))?;
+
+    let client = Client::builder()
+        .add_root_certificate(cert)
+        .resolve("api.bindkey.local", addr)
+        .timeout(Duration::from_secs(10))
+        .build()
+        .map_err(|e| format!("Erreur construction client Reqwest : {}", e))?;
+
+    Ok(client)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use uuid::Uuid;
+
+    #[test]
+    fn test_role_serialization() {
+        let role = Role::ADMIN;
+        let json = serde_json::to_string(&role).unwrap();
+        assert_eq!(json, "\"ADMIN\"");
+    }
+
+    #[test]
+    fn test_register_payload_serialization() {
+        let payload = RegisterPayload {
+            first_name: "Alice".to_string(),
+            last_name: "Smith".to_string(),
+            email: "alice@bindkey.com".to_string(),
+            password: "hashed_password".to_string(),
+            user_role: Role::USER,
+            sn: "BK-12345".to_string(),
+            bindkey_status: StatusBindkey::ACTIVE,
+            pub_sign: "pub_sign_key".to_string(),
+            pub_ecdh: "pub_ecdh_key".to_string(),
+        };
+
+        let json = serde_json::to_string(&payload).unwrap();
+        assert!(json.contains("Alice"));
+        assert!(json.contains("alice@bindkey.com"));
+        assert!(json.contains("USER"));
+        assert!(json.contains("ACTIVE"));
+    }
+
+    #[test]
+    fn test_challenge_response_deserialization() {
+        let json_data = r#"
+        {
+            "auth_challenge": "random_nonce_123",
+            "session_id": "urn:uuid:123e4567-e89b-12d3-a456-426614174000"
+        }
+        "#;
+
+        let result: Result<ChallengeResponse, _> = serde_json::from_str(json_data);
+        assert!(result.is_ok());
+        let challenge = result.unwrap();
+        assert_eq!(challenge.auth_challenge, "random_nonce_123");
+    }
+}
