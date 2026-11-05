@@ -16,7 +16,7 @@ impl AppConfig {
 
     pub fn default() -> Self {
         Self {
-            api_url: "https://api.bindkey.local".to_string(),
+            api_url: "https://bindkey.cyber.lan".to_string(),
         }
     }
 }
@@ -28,7 +28,7 @@ mod tests {
     #[test]
     fn test_default_config() {
         let config = AppConfig::default();
-        assert_eq!(config.api_url, "https://api.bindkey.local");
+        assert_eq!(config.api_url, "https://bindkey.cyber.lan");
     }
 
     #[test]

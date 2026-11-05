@@ -270,7 +270,7 @@ pub struct ShareAckPayload {
 
 pub fn create_secure_client() -> Result<Client, String> {
     let ip_filename = "server_ip.txt";
-    let default_ip = "10.10.10.187";
+    let default_ip = "10.10.10.213";
 
     let ip_str = if Path::new(ip_filename).exists() {
         fs::read_to_string(ip_filename)
@@ -288,7 +288,7 @@ pub fn create_secure_client() -> Result<Client, String> {
     let ip_addr =
         IpAddr::from_str(&ip_str).map_err(|e| format!("IP invalide '{}': {}", ip_str, e))?;
 
-    let addr = SocketAddr::new(ip_addr, 31278);
+    let addr = SocketAddr::new(ip_addr, 443);
 
     let cert_bytes = include_bytes!("../../bindkey_cert.pem");
 
@@ -297,7 +297,7 @@ pub fn create_secure_client() -> Result<Client, String> {
 
     let client = Client::builder()
         .add_root_certificate(cert)
-        .resolve("api.bindkey.local", addr)
+        .resolve("bindkey.cyber.lan", addr)
         .timeout(Duration::from_secs(10))
         .build()
         .map_err(|e| format!("Erreur construction client Reqwest : {}", e))?;
