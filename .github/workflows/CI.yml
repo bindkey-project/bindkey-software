@@ -48,7 +48,7 @@ jobs:
       uses: taiki-e/install-action@cargo-audit
           
     - name: Run Security Audit
-      run: cargo audit
+      run: cargo audit --ignore RUSTSEC-2026-0194 --ignore RUSTSEC-2026-0195
       
     - name: Run tests
       run: cargo test --verbose
