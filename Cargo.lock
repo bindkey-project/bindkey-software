@@ -4617,7 +4617,7 @@ dependencies = [
  "hyper",
  "indicatif",
  "log",
- "quick-xml 0.37.5",
+ "quick-xml 0.41.0",
  "regex",
  "reqwest",
  "self-replace",
@@ -6763,7 +6763,7 @@ version = "4.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ab3f374552b954f6abb4bd6ce979e6c9b38fb9d0cd7cc68a7d796e70c9f3a233"
 dependencies = [
- "quick-xml 0.30.0",
+ "quick-xml 0.41.0",
  "serde",
  "static_assertions",
  "zbus_names",
